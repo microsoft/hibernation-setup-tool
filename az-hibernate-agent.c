@@ -83,6 +83,7 @@ static void log_info(const char *fmt, ...)
 }
 
 __attribute__((format(printf, 1, 2)))
+__attribute__((noreturn))
 static void log_fatal(const char *fmt, ...)
 {
     va_list ap;
