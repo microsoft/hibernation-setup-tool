@@ -467,7 +467,7 @@ static uint32_t get_swap_file_offset(int fd)
         uint32_t blknum = i;
 
         if (ioctl(fd, FIBMAP, &blknum) < 0)
-            log_fatal("Could not get block number for block number %d: %s", i, strerror(errno));
+            log_fatal("Could not get filesystem block number for block #%d: %s", i, strerror(errno));
 
         if (i == 0)
             first_blknum = blknum;
