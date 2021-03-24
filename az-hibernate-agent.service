@@ -1,0 +1,11 @@
+[Unit]
+Description=Azure Hibernation Agent
+
+[Service]
+Type=simple
+Exec=/usr/sbin/az-hibernation-agent
+RemainAfterExit=false
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target
