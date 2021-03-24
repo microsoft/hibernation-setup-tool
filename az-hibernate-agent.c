@@ -5,6 +5,7 @@
 // Copyright (c) 2021 Microsoft Corp.
 // Licensed under the terms of the MIT license.
 //
+// $PackageVersion$ 1.0-1
 
 #define _GNU_SOURCE
 #include <ctype.h>
