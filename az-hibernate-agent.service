@@ -3,7 +3,7 @@ Description=Azure Hibernation Agent
 
 [Service]
 Type=simple
-Exec=/usr/sbin/az-hibernation-agent
+ExecStart=/usr/sbin/az-hibernate-agent
 RemainAfterExit=false
 StandardOutput=journal
 
