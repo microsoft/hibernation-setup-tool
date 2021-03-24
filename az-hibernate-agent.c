@@ -366,10 +366,8 @@ static long determine_block_size_for_root_fs(void)
                     mntent->mnt_fsname, strerror(errno));
             }
 
-            if (ioctl(fd, BLKSSZGET, &sector_size) < 0) {
-                log_fatal("Could not obtain sector size for %s: %s",
-                    mntent->mnt_fsname, strerror(errno));
-            }
+            if (ioctl(fd, BLKSSZGET, &sector_size) < 0)
+                sector_size = 0;
 
             close(fd);
             break;
@@ -377,11 +375,16 @@ static long determine_block_size_for_root_fs(void)
     }
     endmntent(mtab);
 
-    struct statfs sfs;
-    if (statfs("/", &sfs) < 0)
-        log_fatal("Could not determine optimal block size for root filesystem: %s", strerror(errno));
+    if (sector_size) {
+        struct statfs sfs;
+        if (statfs("/", &sfs) < 0)
+            log_fatal("Could not determine optimal block size for root filesystem: %s", strerror(errno));
 
-    return sfs.f_bsize > sector_size ? sfs.f_bsize : sector_size;
+        return sfs.f_bsize > sector_size ? sfs.f_bsize : sector_size;
+    }
+
+    log_fatal("Could not obtain sector size for root partition: %s", strerror(errno));
+    __builtin_unreachable();
 }
 
 static char *allocate_block_for_swap_warmup(long block_size)
