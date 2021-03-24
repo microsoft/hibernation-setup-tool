@@ -505,6 +505,7 @@ static bool try_zero_out_with_write(const char *path, off_t needed_size, long bl
     for (off_t off = 0; off < last_off; off += block_size) {
         if (pwrite(fd, pattern, block_size, off) < 0) {
             log_info("Could not write pattern to %s: %s", path, strerror(errno));
+            free(pattern);
             close(fd);
             return false;
         }
