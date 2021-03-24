@@ -686,6 +686,9 @@ static struct swap_file *create_swap_file(size_t needed_size)
     spawn_and_wait("mkswap", 1, swap_file_name);
 
     struct swap_file *ret = malloc(sizeof(*ret) + sizeof(swap_file_name));
+    if (!ret)
+        log_fatal("Could not allocate memory to represent a swap file: %s", strerror(errno));
+
     ret->capacity = needed_size;
     memcpy(ret->path, swap_file_name, sizeof(swap_file_name));
     return ret;
