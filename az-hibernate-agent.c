@@ -548,11 +548,19 @@ static bool create_swap_file_with_size(const char *path, off_t size)
      * ioctl regardless of the filesystem just in case.
      * More information: https://wiki.archlinux.org/index.php/btrfs#Swap_file
      */
-    if (!fs_set_flags(fd, FS_NOCOW_FL, 0))
-        log_info("Could not disable CoW for %s: %s. Will try setting up swap anyway.", path, strerror(errno));
+    if (!fs_set_flags(fd, FS_NOCOW_FL, 0)) {
+        /* Some filesystems don't support CoW (EXT4 for instance), so don't bother
+         * giving an error message in those cases. */
+        if (errno != EOPNOTSUPP)
+            log_info("Could not disable CoW for %s: %s. Will try setting up swap anyway.", path, strerror(errno));
+    }
     /* Disable compression, too. */
-    if (!fs_set_flags(fd, FS_NOCOMP_FL, FS_COMPR_FL))
-        log_info("Could not disable compression for %s: %s. Will try setting up swap anyway.", path, strerror(errno));
+    if (!fs_set_flags(fd, FS_NOCOMP_FL, FS_COMPR_FL)) {
+        /* Compression is optional, too, so don't bother giving an error message in
+         * case the filesystem doesn't support it. */
+        if (errno != EOPNOTSUPP)
+            log_info("Could not disable compression for %s: %s. Will try setting up swap anyway.", path, strerror(errno));
+    }
 
     rc = ftruncate(fd, size);
     if (rc < 0) {
