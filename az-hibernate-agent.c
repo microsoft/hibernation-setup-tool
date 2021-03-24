@@ -521,14 +521,39 @@ static bool try_zero_out_with_write(const char *path, off_t needed_size, long bl
     return true;
 }
 
+static bool fs_set_flags(int fd, int flags_to_set, int flags_to_reset)
+{
+    int current_flags;
+
+    if (ioctl(fd, FS_IOC_GETFLAGS, &current_flags) < 0)
+        return false;
+
+    current_flags |= flags_to_set;
+    current_flags &= ~flags_to_reset;
+
+    if (ioctl(fd, FS_IOC_SETFLAGS, &current_flags) < 0)
+        return false;
+
+    return true;
+}
+
 static bool create_file_with_size(const char *path, off_t size)
 {
     int fd = open(path, O_CLOEXEC | O_WRONLY | O_CREAT, 0600);
+    int rc;
 
     if (fd < 0)
         return false;
 
-    int rc = ftruncate(fd, size);
+    /* Disabling CoW is necessary on btrfs filesystems, but issue the
+     * ioctl regardless of the filesystem just in case.  Also disable
+     * compression while we're at it.
+     * More information: https://wiki.archlinux.org/index.php/btrfs#Swap_file
+     */
+    if (!fs_set_flags(fd, FS_NOCOW_FL|FS_NOCOMP_FL, FS_COMPR_FL))
+        log_info("Could not disable CoW or compression for %s: %s. Will try setting up swap anyway.", path, strerror(errno));
+
+    rc = ftruncate(fd, size);
     if (rc < 0) {
         if (errno == EPERM) {
             log_info("Not enough disk space to create %s with %zu MB.", path, size / MEGA_BYTES);
