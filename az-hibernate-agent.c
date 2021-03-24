@@ -629,12 +629,12 @@ static void spawn_and_wait(const char *program, int n_args, ...)
     log_info("%s finished successfully.", program);
 }
 
-static bool is_file_on_ext4(const char *path)
+static bool is_file_on_fs(const char *path, __fsword_t magic)
 {
     struct statfs stfs;
 
     if (!statfs(path, &stfs))
-        return stfs.f_type == EXT4_SUPER_MAGIC;
+        return stfs.f_type == magic;
 
     return false;
 }
@@ -660,8 +660,10 @@ static struct swap_file *create_swap_file(size_t needed_size)
         if (!try_zero_out_with_write(swap_file_name, needed_size, block_size))
             log_fatal("Could not create swap file.");
     }
-    if (is_file_on_ext4(swap_file_name) && is_exec_in_path("e4defrag"))
+    if (is_file_on_fs(swap_file_name, EXT4_SUPER_MAGIC) && is_exec_in_path("e4defrag"))
         spawn_and_wait("e4defrag", 1, swap_file_name);
+    if (is_file_on_fs(swap_file_name, BTRFS_SUPER_MAGIC) && is_exec_in_path("btrfs"))
+        spawn_and_wait("btrfs", 3, "filesystem", "defragment", swap_file_name);
 
     spawn_and_wait("mkswap", 1, swap_file_name);
 
