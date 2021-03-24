@@ -410,22 +410,20 @@ static char *read_first_line_from_file(const char *path, char buffer[static 1024
 {
     FILE *f = fopen(path, "re");
 
-    if (f) {
-        bool did_read = fgets(buffer, 1024, f) != NULL;
+    if (!f)
+        return NULL;
 
-        fclose(f);
+    bool did_read = fgets(buffer, 1024, f) != NULL;
+    fclose(f);
 
-        if (did_read) {
-            char *lf = strchr(buffer, '\n');
+    if (!did_read)
+        return NULL;
 
-            if (lf)
-                *lf = '\0';
+    char *lf = strchr(buffer, '\n');
+    if (lf)
+        *lf = '\0';
 
-            return buffer;
-        }
-    }
-
-    return NULL;
+    return buffer;
 }
 
 static bool is_hibernation_enabled_for_vm(void)
