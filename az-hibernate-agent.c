@@ -788,7 +788,7 @@ static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
 
         FILE *conf = fopen("/etc/initramfs-tools/conf.d/resume", "we");
         if (!conf)
-            log_fatal("Could not open initramfs-toosl configuration file: %s", strerror(errno));
+            log_fatal("Could not open initramfs-tools configuration file: %s", strerror(errno));
 
         fprintf(conf, "# Updated automatically by az-hibernate-agent. Do not modify.\n");
         fprintf(conf, "RESUME=UUID=%s\n", dev_uuid);
