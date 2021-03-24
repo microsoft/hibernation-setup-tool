@@ -1,0 +1,13 @@
+Source: az-hibernate-agent
+Section: utils
+Priority: optional
+Maintainer: Leandro Pereira <leandro.pereira@microsoft.com>
+
+Package: az-hibernate-agent
+Architecture: amd64
+Homepage: <https://github.com/microsoft/az-hibernate-agent>
+Build-Depends: dh-systemd (>= 1.5)
+Description: Azure Hibernation Agent
+ Sets up an Azure VM for hibernation, by creating and maintaining a
+ swap file with the proper size, setting up bootloader parameters,
+ etc.

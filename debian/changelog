@@ -1,0 +1,5 @@
+az-hibernate-agent (1.0-1) UNRELEASED; urgency=low
+
+  * Initial release.
+
+ -- Leandro Pereira <leandro.pereira@microsoft.com>  Tue, 23 Mar 2021 20:33:24 -0700
