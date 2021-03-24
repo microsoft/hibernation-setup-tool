@@ -16,5 +16,7 @@ clean:
 	rm -f az-hibernate-agent
 
 install: all
-	install -m 0755 az-hibernate-agent /usr/sbin
-	install -m 0644 az-hibernate-agent.service /etc/systemd/system
+	install -m 0755 -d $(DESTDIR)/usr/sbin
+	install -m 0755 -d $(DESTDIR)/etc/systemd/system
+	install -m 0755 az-hibernate-agent $(DESTDIR)/usr/sbin
+	install -m 0644 az-hibernate-agent.service $(DESTDIR)/etc/systemd/system
