@@ -506,7 +506,7 @@ static bool try_zero_out_with_write(const char *path, off_t needed_size, long bl
      * an attempt to allocate a file without holes in them.  mkswap(8)
      * recommends `dd` to be used to 0-initialize the whole file, but
      * writing 4 bytes every block seems to be sufficient to avoid a swap
-     * file without.  */
+     * file without holes.  */
     char *pattern = allocate_block_for_swap_warmup(block_size);
     off_t last_off = needed_size / block_size;
     for (off_t off = 0; off < last_off; off += block_size) {
