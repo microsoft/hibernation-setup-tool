@@ -537,7 +537,7 @@ static bool fs_set_flags(int fd, int flags_to_set, int flags_to_reset)
     return true;
 }
 
-static bool create_file_with_size(const char *path, off_t size)
+static bool create_swap_file_with_size(const char *path, off_t size)
 {
     int fd = open(path, O_CLOEXEC | O_WRONLY | O_CREAT, 0600);
     int rc;
@@ -643,7 +643,7 @@ static struct swap_file *create_swap_file(size_t needed_size)
 {
     log_info("Creating hibernation file at %s with %zu MB.", swap_file_name, needed_size / MEGA_BYTES);
 
-    if (!create_file_with_size(swap_file_name, needed_size))
+    if (!create_swap_file_with_size(swap_file_name, needed_size))
         log_fatal("Could not create swap file, aborting.");
 
     /* Allocate the swap file with the lowest I/O priority possible to not thrash workload */
