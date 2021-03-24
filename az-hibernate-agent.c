@@ -654,7 +654,6 @@ static struct swap_file *create_swap_file(size_t needed_size)
     /* FIXME: Would it be better to determine the block size for swap_file_name instead? */
     long block_size = determine_block_size_for_root_fs();
 
-    /* FIXME: Apparently btrfs filesystems require special treatment to allocate a file like this... test! */
     log_info("Ensuring %s has no holes in it.", swap_file_name);
     if (!try_zeroing_out_with_fallocate(swap_file_name, needed_size)) {
         log_info("Fast method failed; trying a slower method.");
