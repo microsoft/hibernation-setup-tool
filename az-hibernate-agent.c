@@ -150,13 +150,20 @@ static bool is_exec_in_path(const char *name)
             /* Last segment of $PATH */
             ret = snprintf(path, PATH_MAX, "%s/%s", path_env, name);
             path_env = "";
-        } else {
+        } else if (p - path_env) {
             /* Middle segments */
             ret = snprintf(path, PATH_MAX, "%.*s/%s", (int)(p - path_env), path_env, name);
             path_env = p + 1;
+        } else {
+            /* Empty segment or non-root directory? Skip. */
+            path_env = p + 1;
+            continue;
         }
         if (ret < 0 || ret >= PATH_MAX)
             log_fatal("Building path to determine if %s exists would overflow buffer", name);
+
+        if (path[0] != '/')
+            continue;
 
         if (!access(path, X_OK))
             return true;
