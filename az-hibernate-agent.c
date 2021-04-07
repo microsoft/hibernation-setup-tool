@@ -33,7 +33,8 @@
 #include <sys/vfs.h>
 #include <unistd.h>
 
-#define MEGA_BYTES (1<<20)
+#define MEGA_BYTES (1ul<<20)
+#define GIGA_BYTES (1ul<<30)
 
 #ifndef SEEK_HOLE
 #define SEEK_HOLE 4
@@ -274,12 +275,14 @@ static size_t physical_memory(void)
 
 static size_t swap_needed_size(size_t phys_mem)
 {
-    /* FIXME: use constant from the kernel headers for the hibernation overhead? (Do
-     * those even exist?) */
-    /* FIXME: Is this sufficient? Maybe 2 * phys_mem at least should be used instead,
-     * so there's phys_mem bytes available for the whole memory being used by the workload
-     * plus whatever was in the swap partition?  */
-    return phys_mem + 10 * MEGA_BYTES;
+    /* This is using the recommendation from the Fedora project documentation. */
+    if (phys_mem <= 2 * GIGA_BYTES)
+        return 3 * phys_mem;
+    if (phys_mem <= 8 * GIGA_BYTES)
+        return 2 * phys_mem;
+    if (phys_mem <= 64 * GIGA_BYTES)
+        return (3 * phys_mem) / 2;
+    log_fatal("Hibernation not recommended for a machine with more than 64GB of RAM");
 }
 
 static char *get_uuid_for_dev_path(const char *path)
