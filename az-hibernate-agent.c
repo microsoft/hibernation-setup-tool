@@ -848,7 +848,7 @@ static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
             log_fatal("Could not determine where the Grub configuration file is");
         }
 
-        log_info("Using update-grub2 to patch GRUB configuration");
+        log_info("Using update-grub2 to patch GRUB configuration in %s", grub_cfg_path);
 
         resume_cfg = fopen(grub_cfg_path, "re");
         if (resume_cfg) {
