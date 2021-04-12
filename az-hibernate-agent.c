@@ -67,7 +67,7 @@ static int ioprio_set(int which, int who, int ioprio)
 static void log_impl(const char *type, const char *fmt, va_list ap)
 {
     flockfile(stdout);
-    printf("az-hibernate-agent: %s ", type);
+    printf("%s: ", type);
     vprintf(fmt, ap);
     printf("\n");
     funlockfile(stdout);
