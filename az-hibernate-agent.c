@@ -805,42 +805,54 @@ static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
     }
 
     if (has_update_grub2) {
-        static const char grub_cfg_path[] = "/etc/default/grub";
         FILE *resume_cfg;
         char *old_contents = NULL;
+        const char *grub_cfg_path;
         size_t old_contents_len = 0;
         char buffer[1024];
+
+        if (!access("/etc/default/grub.d", F_OK)) {
+            /* If we find this directory, it might be possible that some of the configuration
+             * files there will override GRUB_CMDLINE_LINUX_DEFAULT.  This seems to be the case
+             * in some Azure Marketplace images, with files such as "50-cloudimg-settings.cfg".
+             * If we find the directory, assume we can create our own with higher priority
+             * instead of modifying the global configuration file. */
+            grub_cfg_path = "/etc/default/grub.d/99-hibernate-settings.cfg";
+        } else if (!access("/dev/default/grub", F_OK)) {
+            grub_cfg_path = "/etc/default/grub";
+        } else {
+            log_fatal("Could not determine where the Grub configuration file is");
+        }
 
         log_info("Using update-grub2 to patch GRUB configuration");
 
         resume_cfg = fopen(grub_cfg_path, "re");
-        if (!resume_cfg)
-            log_fatal("Could not open %s for reading: %s", grub_cfg_path, strerror(errno));
+        if (resume_cfg) {
+            bool in_az_hibernate_agent_block = false;
+            while (fgets(buffer, sizeof(buffer), resume_cfg)) {
+                if (in_az_hibernate_agent_block) {
+                    if (strstr(buffer, "# az-hibernate-agent:end"))
+                        in_az_hibernate_agent_block = false;
+                    continue;
+                }
 
-        bool in_az_hibernate_agent_block = false;
-        while (fgets(buffer, sizeof(buffer), resume_cfg)) {
-            if (in_az_hibernate_agent_block) {
-                if (strstr(buffer, "# az-hibernate-agent:end"))
-                    in_az_hibernate_agent_block = false;
-                continue;
+                if (strstr(buffer, "# az-hibernate-agent:start")) {
+                    in_az_hibernate_agent_block = true;
+                    continue;
+                }
+
+                size_t buflen = strlen(buffer);
+                char *tmp = realloc(old_contents, old_contents_len + buflen + 1);
+                if (!tmp)
+                    log_fatal("Could not allocate memory: %s", strerror(errno));
+
+                memcpy(tmp + old_contents_len, buffer, buflen + 1);
+                old_contents_len += buflen;
+                old_contents = tmp;
             }
 
-            if (strstr(buffer, "# az-hibernate-agent:start")) {
-                in_az_hibernate_agent_block = true;
-                continue;
-            }
-
-            size_t buflen = strlen(buffer);
-            char *tmp = realloc(old_contents, old_contents_len + buflen + 1);
-            if (!tmp)
-                log_fatal("Could not allocate memory: %s", strerror(errno));
-
-            memcpy(tmp + old_contents_len, buffer, buflen + 1);
-            old_contents_len += buflen;
-            old_contents = tmp;
+            fclose(resume_cfg);
         }
-
-        fclose(resume_cfg);
         
         resume_cfg = fopen(grub_cfg_path, "we");
         if (!resume_cfg)
