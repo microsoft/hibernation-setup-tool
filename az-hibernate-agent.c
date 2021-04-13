@@ -808,11 +808,54 @@ static struct resume_swap_area get_swap_area(const struct swap_file *swap)
     };
 }
 
+static const char *find_grub_cfg_path(void)
+{
+    static const char *possible_paths[] = {
+        "/boot/grub2/grub.cfg",
+        "/boot/grub/grub.cfg",
+        NULL
+    };
+
+    for (int i = 0; possible_paths[i]; i++) {
+        if (!access(possible_paths[i], F_OK))
+            return possible_paths[i];
+    }
+
+    log_info("Could not find GRUB configuration file. Is /boot mounted?");
+    return NULL;
+}
+
+static bool is_directory_empty(const char *path)
+{
+    DIR *dir = opendir(path);
+    struct dirent *ent;
+    bool has_file = false;
+
+    if (!dir)
+        return true;
+
+    while ((ent = readdir(dir))) {
+        if (!strcmp(ent->d_name, "."))
+            continue;
+        if (!strcmp(ent->d_name, ".."))
+            continue;
+        has_file = true;
+        break;
+    }
+
+    closedir(dir);
+
+    return !has_file;
+}
+
 static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
                                                   const struct resume_swap_area swap_area,
                                                   bool has_grubby,
-                                                  bool has_update_grub2)
+                                                  bool has_update_grub2,
+                                                  bool has_grub2_mkconfig)
 {
+    bool ret_value = true;
+
     /* Doc: https://docs.fedoraproject.org/en-US/fedora/rawhide/system-administrators-guide/kernel-module-driver-configuration/Working_with_the_GRUB_2_Boot_Loader/#sec-Making_Persistent_Changes_to_a_GRUB_2_Menu_Using_the_grubby_Tool */
     log_info("Kernel command line is missing parameters to resume from hibernation.  Trying to patch grub configuration file.");
 
@@ -838,16 +881,14 @@ static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
     if (has_grubby) { 
         log_info("Using grubby to patch GRUB configuration");
         spawn_and_wait("grubby", 3, "--update-kernel=ALL", "--args", args);
-    }
-
-    if (has_update_grub2) {
+    } else if (has_update_grub2 || has_grub2_mkconfig) {
         FILE *resume_cfg;
         char *old_contents = NULL;
         const char *grub_cfg_path;
         size_t old_contents_len = 0;
         char buffer[1024];
 
-        if (!access("/etc/default/grub.d", F_OK)) {
+        if (!is_directory_empty("/etc/default/grub.d")) {
             /* If we find this directory, it might be possible that some of the configuration
              * files there will override GRUB_CMDLINE_LINUX_DEFAULT.  This seems to be the case
              * in some Azure Marketplace images, with files such as "50-cloudimg-settings.cfg".
@@ -860,7 +901,6 @@ static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
             log_fatal("Could not determine where the Grub configuration file is");
         }
 
-        log_info("Using update-grub2 to patch GRUB configuration in %s", grub_cfg_path);
 
         resume_cfg = fopen(grub_cfg_path, "re");
         if (resume_cfg) {
@@ -905,12 +945,24 @@ static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
 
         fclose(resume_cfg);
 
-        spawn_and_wait("update-grub2", 0);
+        if (has_update_grub2) {
+            log_info("Using update-grub2 to patch GRUB configuration in %s", grub_cfg_path);
+            spawn_and_wait("update-grub2", 0);
+        } else if (has_grub2_mkconfig) {
+            const char *grub_cfg_path = find_grub_cfg_path();
+
+            if (!grub_cfg_path) {
+                ret_value = false;
+            } else {
+                log_info("Using grub2-mkconfig to patch GRUB configuration in %s", grub_cfg_path);
+                spawn_and_wait("grub2-mkconfig", 2, "-o", grub_cfg_path);
+            }
+        }
     }
 
     free(args);
 
-    return true;
+    return ret_value;
 }
 
 static bool update_swap_offset(const struct swap_file *swap)
@@ -946,8 +998,9 @@ static bool update_swap_offset(const struct swap_file *swap)
 
         bool has_grubby = is_exec_in_path("grubby");
         bool has_update_grub2 = is_exec_in_path("update-grub2");
-        if (has_grubby || has_update_grub2) {
-            ret = update_kernel_cmdline_params_for_grub(dev_uuid, swap_area, has_grubby, has_update_grub2);
+        bool has_grub2_mkconfig = is_exec_in_path("grub2-mkconfig");
+        if (has_grubby || has_update_grub2 || has_grub2_mkconfig) {
+            ret = update_kernel_cmdline_params_for_grub(dev_uuid, swap_area, has_grubby, has_update_grub2, has_grub2_mkconfig);
         } else {
             log_info("Could not determine how system was booted to update kernel parameters for next boot.  System won't be able to resume until you fix this.");
             ret = false;
