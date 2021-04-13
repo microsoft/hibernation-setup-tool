@@ -568,6 +568,16 @@ static bool fs_set_flags(int fd, int flags_to_set, int flags_to_reset)
     return true;
 }
 
+static bool is_file_on_fs(const char *path, __fsword_t magic)
+{
+    struct statfs stfs;
+
+    if (!statfs(path, &stfs))
+        return stfs.f_type == magic;
+
+    return false;
+}
+
 static bool create_swap_file_with_size(const char *path, off_t size)
 {
     int fd = open(path, O_CLOEXEC | O_WRONLY | O_CREAT, 0600);
@@ -594,28 +604,22 @@ static bool create_swap_file_with_size(const char *path, off_t size)
             log_info("Could not disable compression for %s: %s. Will try setting up swap anyway.", path, strerror(errno));
     }
 
-    rc = ftruncate(fd, size);
-    if (rc < 0) {
-        if (errno == EPERM) {
-            log_info("Not enough disk space to create %s with %zu MB.", path, size / MEGA_BYTES);
-        } else {
-            log_info("Could not resize %s to %ld MB: %s", path, size / MEGA_BYTES, strerror(errno));
+    if (is_file_on_fs(path, XFS_SUPER_MAGIC)) {
+        rc = 0;
+    } else {
+        rc = ftruncate(fd, size);
+        if (rc < 0) {
+            if (errno == EPERM) {
+                log_info("Not enough disk space to create %s with %zu MB.", path, size / MEGA_BYTES);
+            } else {
+                log_info("Could not resize %s to %ld MB: %s", path, size / MEGA_BYTES, strerror(errno));
+            }
         }
     }
 
     close(fd);
 
     return rc == 0;
-}
-
-static bool is_file_on_fs(const char *path, __fsword_t magic)
-{
-    struct statfs stfs;
-
-    if (!statfs(path, &stfs))
-        return stfs.f_type == magic;
-
-    return false;
 }
 
 static bool try_zeroing_out_with_fallocate(const char *path, off_t size)
