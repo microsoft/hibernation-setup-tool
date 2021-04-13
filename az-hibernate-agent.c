@@ -401,18 +401,6 @@ static long determine_block_size_for_root_fs(void)
     __builtin_unreachable();
 }
 
-static char *allocate_block_for_swap_warmup(long block_size)
-{
-    char *block = calloc(1, block_size);
-
-    if (!block)
-        log_fatal("Couldn't allocate temporary block for swap warmup procedure");
-
-    const uint32_t pattern = 'M' << 24 | 'S' << 16 | 'F' << 8 | 'T';
-    memcpy(block, &pattern, sizeof(pattern));
-    return block;
-}
-
 static char *read_first_line_from_file(const char *path, char buffer[static 1024])
 {
     FILE *f = fopen(path, "re");
@@ -515,35 +503,35 @@ static uint32_t get_swap_file_offset(int fd)
         num_contiguous_blocks++;
     }
 
+    log_info("First %d blocks of %d bytes are contiguous", num_contiguous_blocks, blksize);
+
     if (num_contiguous_blocks * blksize >= sysconf(_SC_PAGE_SIZE))
         return first_blknum;
 
     return ~0;
 }
 
-static bool try_zero_out_with_write(const char *path, off_t needed_size, long block_size)
+static bool try_zero_out_with_write(const char *path, off_t needed_size)
 {
-    /* O_DSYNC isn't used here as fdatasync() is called after the write loop is finished. */
-    int fd = open(path, O_WRONLY | O_CLOEXEC | O_SYNC);
+    int fd = open(path, O_WRONLY | O_CLOEXEC);
+    int ret = true;
 
     if (fd < 0) {
         log_info("Could not open %s: %s", path, strerror(errno));
         return false;
     }
 
-    /* This pattern will be overwritten by mkswap(8) called below.  This is
-     * an attempt to allocate a file without holes in them.  mkswap(8)
-     * recommends `dd` to be used to 0-initialize the whole file, but
-     * writing 4 bytes every block seems to be sufficient to avoid a swap
-     * file without holes.  */
-    char *pattern = allocate_block_for_swap_warmup(block_size);
-    off_t last_off = needed_size / block_size;
-    for (off_t off = 0; off < last_off; off += block_size) {
-        if (pwrite(fd, pattern, block_size, off) < 0) {
+    /* FIXME: Would it be better to determine the block size for swap_file_name instead? */
+    long block_size = determine_block_size_for_root_fs();
+    const uint32_t pattern = 'T' << 24 | 'F' << 16 | 'S' << 8 | 'M';
+    for (off_t offset = 0; offset < needed_size; offset += block_size) {
+        /* FIXME: use pwritev()? */
+        ssize_t written = pwrite(fd, &pattern, sizeof(pattern), offset);
+
+        if (written < 0) {
             log_info("Could not write pattern to %s: %s", path, strerror(errno));
-            free(pattern);
-            close(fd);
-            return false;
+            ret = false;
+            goto out;
         }
     }
     /* FIXME: maybe a better strategy here would be calling
@@ -555,10 +543,10 @@ static bool try_zero_out_with_write(const char *path, off_t needed_size, long bl
      * data every block_size bytes instead of the whole block_size region,
      * saving us precious time in systems with lots of RAM and slow disks */
     fdatasync(fd);
-    free(pattern);
+out:
     close(fd);
 
-    return true;
+    return ret;
 }
 
 static bool fs_set_flags(int fd, int flags_to_set, int flags_to_reset)
