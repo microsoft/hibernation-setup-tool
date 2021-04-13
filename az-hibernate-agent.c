@@ -842,7 +842,7 @@ static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
              * If we find the directory, assume we can create our own with higher priority
              * instead of modifying the global configuration file. */
             grub_cfg_path = "/etc/default/grub.d/99-hibernate-settings.cfg";
-        } else if (!access("/dev/default/grub", F_OK)) {
+        } else if (!access("/etc/default/grub", F_OK)) {
             grub_cfg_path = "/etc/default/grub";
         } else {
             log_fatal("Could not determine where the Grub configuration file is");
