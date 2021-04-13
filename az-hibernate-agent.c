@@ -52,6 +52,10 @@
 #define IOPRIO_PRIO_VALUE(klass, data) (((klass) << 13) | (data))
 #endif
 
+#ifndef XFS_SUPER_MAGIC
+#define XFS_SUPER_MAGIC ('X' << 24 | 'F' << 16 | 'S' << 8 | 'B')
+#endif
+
 static const char swap_file_name[] = "/hibfile.sys";
 
 struct swap_file {
@@ -613,6 +617,16 @@ static bool create_swap_file_with_size(const char *path, off_t size)
     return rc == 0;
 }
 
+static bool is_file_on_fs(const char *path, __fsword_t magic)
+{
+    struct statfs stfs;
+
+    if (!statfs(path, &stfs))
+        return stfs.f_type == magic;
+
+    return false;
+}
+
 static bool try_zeroing_out_with_fallocate(const char *path, off_t size)
 {
     int fd = open(path, O_CLOEXEC | O_WRONLY);
@@ -675,14 +689,25 @@ static void spawn_and_wait(const char *program, int n_args, ...)
     log_info("%s finished successfully.", program);
 }
 
-static bool is_file_on_fs(const char *path, __fsword_t magic)
+static void perform_fs_specific_checks(const char *path)
 {
-    struct statfs stfs;
+    if (is_file_on_fs(path, EXT4_SUPER_MAGIC) && is_exec_in_path("e4defrag")) {
+        spawn_and_wait("e4defrag", 1, path);
+    } else if (is_file_on_fs(path, BTRFS_SUPER_MAGIC)) {
+        struct utsname utsbuf;
 
-    if (!statfs(path, &stfs))
-        return stfs.f_type == magic;
+        if (uname(&utsbuf) < 0)
+            log_fatal("Could not determine Linux kernel version: %s", strerror(errno));
+        if (utsbuf.release[1] != '.')
+            log_fatal("Could not parse Linux kernel version");
+        if (uts_buf.release[0] < '5')
+            log_fatal("Swap files are not supported on Btrfs running on kernel %s", uts_buf.release);
 
-    return false;
+        if (is_exec_in_path("btrfs"))
+            spawn_and_wait("btrfs", 3, "filesystem", "defragment", path);
+    } else if (is_file_on_fs(path, XFS_SUPER_MAGIC) && is_exec_in_path("xfs_fsr")) {
+        spawn_and_wait("xfs_fsr", 2, "-v", path);
+    }
 }
 
 static struct swap_file *create_swap_file(size_t needed_size)
@@ -695,20 +720,19 @@ static struct swap_file *create_swap_file(size_t needed_size)
     /* Allocate the swap file with the lowest I/O priority possible to not thrash workload */
     ioprio_set(IOPRIO_WHO_PROCESS, 0, IOPRIO_PRIO_VALUE(IOPRIO_CLASS_IDLE, 7));
 
-    /* FIXME: Would it be better to determine the block size for swap_file_name instead? */
-    long block_size = determine_block_size_for_root_fs();
-
     log_info("Ensuring %s has no holes in it.", swap_file_name);
-    if (!try_zeroing_out_with_fallocate(swap_file_name, needed_size)) {
-        log_info("Fast method failed; trying a slower method.");
 
-        if (!try_zero_out_with_write(swap_file_name, needed_size, block_size))
+    bool swap_on_xfs = is_file_on_fs(swap_file_name, XFS_SUPER_MAGIC);
+    if (swap_on_xfs || !try_zeroing_out_with_fallocate(swap_file_name, needed_size)) {
+        if (swap_on_xfs)
+            log_info("Root partition is in a XFS filesystem; need to use slower method to allocate swap file");
+        else
+            log_info("Fast method failed; trying a slower method.");
+
+        if (!try_zero_out_with_write(swap_file_name, needed_size))
             log_fatal("Could not create swap file.");
     }
-    if (is_file_on_fs(swap_file_name, EXT4_SUPER_MAGIC) && is_exec_in_path("e4defrag"))
-        spawn_and_wait("e4defrag", 1, swap_file_name);
-    if (is_file_on_fs(swap_file_name, BTRFS_SUPER_MAGIC) && is_exec_in_path("btrfs"))
-        spawn_and_wait("btrfs", 3, "filesystem", "defragment", swap_file_name);
+    perform_fs_specific_checks(swap_file_name);
 
     spawn_and_wait("mkswap", 1, swap_file_name);
 
