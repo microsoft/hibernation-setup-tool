@@ -208,11 +208,14 @@ static struct swap_file *find_swap_file(size_t needed_size)
     while (fgets(buffer, sizeof(buffer), swaps)) {
         char *filename = buffer;
         char *type = next_field(filename);
-        char *size = next_field(type);
 
         if (!strcmp(type, "file")) {
-            size_t size_as_int = parse_size_or_die(size, ' ', NULL);
+            char *size = next_field(type);
 
+            if (!size)
+                log_fatal("Malformed line in /proc/swaps: can't find size column");
+
+            size_t size_as_int = parse_size_or_die(size, ' ', NULL);
             if (size_as_int < needed_size)
                 continue;
 
