@@ -13,8 +13,8 @@
 #include <linux/falloc.h>
 #include <linux/fs.h>
 #include <linux/ioctl.h>
-#include <linux/suspend_ioctls.h>
 #include <linux/magic.h>
+#include <linux/suspend_ioctls.h>
 #include <mntent.h>
 #include <spawn.h>
 #include <stdarg.h>
@@ -23,14 +23,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syscall.h>
 #include <sys/ioctl.h>
-#include <sys/statfs.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 #include <sys/swap.h>
 #include <sys/types.h>
-#include <sys/wait.h>
+#include <sys/utsname.h>
 #include <sys/vfs.h>
+#include <sys/wait.h>
+#include <syscall.h>
 #include <unistd.h>
 
 #define MEGA_BYTES (1ul<<20)
@@ -695,8 +696,8 @@ static void perform_fs_specific_checks(const char *path)
             log_fatal("Could not determine Linux kernel version: %s", strerror(errno));
         if (utsbuf.release[1] != '.')
             log_fatal("Could not parse Linux kernel version");
-        if (uts_buf.release[0] < '5')
-            log_fatal("Swap files are not supported on Btrfs running on kernel %s", uts_buf.release);
+        if (utsbuf.release[0] < '5')
+            log_fatal("Swap files are not supported on Btrfs running on kernel %s", utsbuf.release);
 
         if (is_exec_in_path("btrfs"))
             spawn_and_wait("btrfs", 3, "filesystem", "defragment", path);
