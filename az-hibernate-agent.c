@@ -1078,6 +1078,9 @@ static void ensure_swap_is_enabled(const struct swap_file *swap)
 
     log_info("Ensuring swap file %s is enabled", swap->path);
 
+    if (chmod(swap->path, 0600) < 0)
+        log_fatal("Couldn't set correct permissions on %s: %s", swap->path, strerror(errno));
+
     if (swapon(swap->path, 0) < 0) {
         if (errno != EBUSY)
             log_fatal("Could not enable swap file: %s", strerror(errno));
