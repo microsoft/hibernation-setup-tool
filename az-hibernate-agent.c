@@ -1069,6 +1069,50 @@ static void ensure_swap_is_enabled(const struct swap_file *swap)
     fclose(fstab);
 }
 
+static void ensure_udev_rules_are_installed(void)
+{
+    static const char rule[] = "SUBSYSTEM==\"vmbus\", ACTION==\"change\", "
+                               "DRIVER==\"hv_utils\", ENV{EVENT}==\"hibernate\", "
+                               "RUN+=\"/usr/bin/systemctl hibernate\"\n";
+    const char *udev_rule_path;
+
+    if (!is_executable_in_path("udevadm")) {
+        log_info("udevadm has not been found in $PATH; maybe system doesn't use systemd?");
+        return;
+    }
+    if (access("/usr/bin/systemctl", X_OK) < 0) {
+        log_info("/usr/bin/systemctl not found or not executable, udev rule won't work");
+        return;
+    }
+    if (access("/sys/bus/vmbus", F_OK) < 0) {
+        log_info("VM isn't running on Hyper-V, so udev rule is not necessary.");
+        return;
+    }
+
+    if (!access("/usr/lib/udev/rules.d", F_OK)) {
+        udev_rule_path = "/usr/lib/udev/rules.d/99-vm-hibernation.rules";
+    } else if (!access("/etc/udev/rules.d", F_OK)) {
+        udev_rule_path = "/etc/udev/rules.d/99-vm-hibernation.rules";
+    } else if (!access("/lib/udev/rules.d", F_OK)) {
+        udev_rule_path = "/lib/udev/rules.d/99-vm-hibernation.rules";
+    } else {
+        log_info("Couldn't find where udev stores the rules.  VM may not hibernate.");
+        return;
+    }
+
+    FILE *rule_file = fopen(udev_rule_path, "we");
+    if (!rule_file)
+        log_fatal("Could not open '%s' for writing: %s", udev_rule_path, strerror(errno));
+    fwrite(rule, sizeof(rule) - 1, 1, rule_file);
+    fclose(rule_file);
+
+    log_info("udev rule to hibernate with systemd set up in %s.  Telling udev about it.", udev_rule_path);
+
+    /* This isn't strictly necessary, but do it anyway just in case. */
+    spawn_and_wait("udevadm", 2, "control", "--reload-rules");
+    spawn_and_wait("udevadm", 1, "trigger");
+}
+
 int main(int argc, char *argv[])
 {
     (void)argc;
@@ -1133,6 +1177,8 @@ int main(int argc, char *argv[])
     ensure_swap_is_enabled(swap);
     if (!update_swap_offset(swap))
         log_fatal("Could not update swap offset.");
+
+    ensure_udev_rules_are_installed();
 
     log_info("Swap file for VM hibernation set up successfully");
 
