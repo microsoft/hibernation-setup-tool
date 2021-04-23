@@ -303,7 +303,7 @@ static char *get_uuid_for_dev_path(const char *path)
     if (stat(path, &dev_st) < 0) {
         log_info("Could not stat(%s): %s", path, strerror(errno));
         return NULL;
-    } 
+    }
 
     uuid_dir = opendir("/dev/disk/by-uuid/");
     if (!uuid_dir) {
@@ -480,7 +480,7 @@ static uint32_t get_swap_file_offset(int fd)
 
     if (ioctl(fd, FIGETBSZ, &blksize) < 0)
         log_fatal("Could not get file block size: %s", strerror(errno));
-    
+
     uint32_t last = 0, first = 0, num_contiguous_blocks = 0;
     uint32_t blocks_per_page = sysconf(_SC_PAGE_SIZE) / blksize;
     uint32_t first_blknum = ~0;
@@ -836,7 +836,7 @@ static bool is_kernel_cmdline_correct(const char *dev_uuid, off_t resume_offset)
         return false;
 
     return true;
-} 
+}
 
 static struct resume_swap_area get_swap_area(const struct swap_file *swap)
 {
@@ -936,7 +936,7 @@ static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
         spawn_and_wait("update-initramfs", 1, "-u");
     }
 
-    if (has_grubby) { 
+    if (has_grubby) {
         log_info("Using grubby to patch GRUB configuration");
         spawn_and_wait("grubby", 3, "--update-kernel=ALL", "--args", args);
     } else if (has_update_grub2 || has_grub2_mkconfig) {
@@ -987,7 +987,7 @@ static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
 
             fclose(resume_cfg);
         }
-        
+
         resume_cfg = fopen(grub_cfg_path, "we");
         if (!resume_cfg)
             log_fatal("Could not open %s for writing: %s", grub_cfg_path, strerror(errno));
