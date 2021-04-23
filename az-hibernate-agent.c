@@ -445,33 +445,35 @@ static bool is_hibernation_enabled_for_vm(void)
     }
     if (strstr(entry, "platform")) {
         log_info("VM supports hibernation with platform-supported events.");
-    } else if (strstr(entry, "shutdown")) {
+        return true;
+    }
+    if (strstr(entry, "shutdown")) {
         log_info("VM supports hibernation only with the shutdown method. This is not ideal.");
     } else if (strstr(entry, "suspend")) {
         log_info("VM supports hibernation only with the suspend method. This is not ideal.");
     } else {
-        log_info("No known good hibernation method detected. Current methods: '%s'.", entry);
-        return false;
+        log_info("Unknown VM hibernation support mode found: %s", entry);
     }
 
-    /* FIXME: this file isn't currently available in the public Azure images and/or Hyper-V
-     * available publicly on Azure.  Only consider it as a way to disable this agent if
-     * the file is *present* and has a value other than "1"/enabled.  Once this is fully
-     * supported, revisit this. */
-    entry = read_first_line_from_file("/sys/bus/vmbus/hibernation", buffer);
-    if (entry) {
-        if (!strcmp(entry, "1")) {
-            log_info("Hibernation is enabled according to VMBus. This is ideal.");
-            return true;
-        } else {
+    if (!access("/sys/bus/vmbus", F_OK)) {
+        log_info("This is a Hyper-V VM, checking if hibernation is enabled through VMBus events.");
+        /* FIXME: this file isn't currently available in the public Azure images and/or Hyper-V
+         * available publicly on Azure.  Only consider it as a way to disable this agent if
+         * the file is *present* and has a value other than "1"/enabled.  Once this is fully
+         * supported, revisit this. */
+        entry = read_first_line_from_file("/sys/bus/vmbus/hibernation", buffer);
+        if (entry) {
+            if (!strcmp(entry, "1")) {
+                log_info("Hibernation is enabled according to VMBus. This is ideal.");
+                return true;
+            }
+
             log_info("Hibernation is disabled according to VMBus.");
-            return false;
         }
     }
-    if (!access("/sys/bus/vmbus", F_OK))
-        log_info("Couldn't figure out if hibernation is enabled on Hyper-V as well.  Proceeding anyway.");
 
-    return true;
+    log_info("Even though VM is capable of hibernation, it seems to be disabled.");
+    return false;
 }
 
 static uint32_t get_swap_file_offset(int fd)
