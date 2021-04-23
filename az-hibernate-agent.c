@@ -1069,7 +1069,7 @@ static bool update_swap_offset(const struct swap_file *swap)
     return ret;
 }
 
-static void ensure_swap_is_enabled(const struct swap_file *swap)
+static void ensure_swap_is_enabled(const struct swap_file *swap, bool created)
 {
     FILE *fstab;
     char *old_contents = NULL;
@@ -1082,6 +1082,9 @@ static void ensure_swap_is_enabled(const struct swap_file *swap)
         log_fatal("Couldn't set correct permissions on %s: %s", swap->path, strerror(errno));
 
     if (swapon(swap->path, 0) < 0) {
+        if (errno == EINVAL && !created)
+            log_fatal("%s exists but kernel isn't accepting it as a swap file. Try removing it and re-running the agent.");
+
         if (errno != EBUSY)
             log_fatal("Could not enable swap file: %s", strerror(errno));
     }
@@ -1219,15 +1222,18 @@ int main(int argc, char *argv[])
         swap = NULL;
     }
 
+    bool created = false;
     if (!swap) {
         log_info("Creating swap file with %zu MB", needed_swap / MEGA_BYTES);
 
         swap = create_swap_file(needed_swap);
         if (!swap)
             log_fatal("Could not create swap file");
+
+        created = true;
     }
 
-    ensure_swap_is_enabled(swap);
+    ensure_swap_is_enabled(swap, created);
     if (!update_swap_offset(swap))
         log_fatal("Could not update swap offset.");
 
