@@ -645,15 +645,71 @@ static bool try_zeroing_out_with_fallocate(const char *path, off_t size)
     return true;
 }
 
+static bool try_vspawn_and_wait(const char *program, char **argv)
+{
+    pid_t pid;
+    int rc;
+
+    rc = posix_spawnp(&pid, program, NULL, NULL, argv, NULL);
+
+    if (rc != 0) {
+        log_info("Could not spawn %s: %s", program, strerror(rc));
+        return false;
+    }
+
+    log_info("Waiting for %s (pid %d) to finish.", program, pid);
+
+    int wstatus;
+    if (waitpid(pid, &wstatus, 0) != pid) {
+        log_info("Couldn't wait for %s: %s", program, strerror(errno));
+        return false;
+    }
+    if (!WIFEXITED(wstatus)) {
+        log_info("%s ended abnormally: %s", program, strerror(errno));
+        return false;
+    }
+    if (WEXITSTATUS(wstatus) == 127) {
+        log_info("Failed to spawn %s", program);
+        return false;
+    }
+    if (WEXITSTATUS(wstatus) != 0) {
+        log_info("%s ended with unexpected exit code %d", program, WEXITSTATUS(wstatus));
+        return false;
+    }
+
+    log_info("%s finished successfully.", program);
+    return true;
+}
+
+static bool try_spawn_and_wait(const char *program, int n_args, ...)
+{
+    va_list ap;
+    char **argv;
+
+    argv = calloc(n_args + 2, sizeof(char *));
+    if (!argv) {
+        log_info("Couldn't allocate memory for argument array");
+        return false;
+    }
+
+    va_start(ap, n_args);
+    argv[0] = (char *)program;
+    for (int i = 1; i <= n_args; i++)
+        argv[i] = va_arg(ap, char *);
+    va_end(ap);
+
+    bool spawned = try_vspawn_and_wait(program, argv);
+
+    free(argv);
+
+    return spawned;
+}
+
 static void spawn_and_wait(const char *program, int n_args, ...)
 {
     va_list ap;
     char **argv;
-    pid_t pid;
-    int rc;
 
-    /* +1 for argv[0], +1 for trailing NULL (implicit due to calloc
-     * zeroing out allocated buffer) */
     argv = calloc(n_args + 2, sizeof(char *));
     if (!argv)
         log_fatal("Couldn't allocate memory for argument array");
@@ -664,32 +720,22 @@ static void spawn_and_wait(const char *program, int n_args, ...)
         argv[i] = va_arg(ap, char *);
     va_end(ap);
 
-    rc = posix_spawnp(&pid, program, NULL, NULL, argv, NULL);
+    bool spawned = try_vspawn_and_wait(program, argv);
+
     free(argv);
 
-    if (rc != 0)
-        log_fatal("Could not spawn %s: %s", program, strerror(rc));
-
-    log_info("Waiting for %s (pid %d) to finish.", program, pid);
-
-    int wstatus;
-    if (waitpid(pid, &wstatus, 0) != pid)
-        log_fatal("Couldn't wait for %s: %s", program, strerror(errno));
-    if (!WIFEXITED(wstatus))
-        log_fatal("%s ended abnormally: %s", program, strerror(errno));
-    if (WEXITSTATUS(wstatus) == 127)
-        log_fatal("Failed to spawn %s", program);
-    if (WEXITSTATUS(wstatus) != 0)
-        log_fatal("%s ended with unexpected exit code %d", program, WEXITSTATUS(wstatus));
-
-    log_info("%s finished successfully.", program);
+    if (!spawned)
+        log_fatal("Aborting program due to error condition when spawning %s", program);
 }
 
 static void perform_fs_specific_checks(const char *path)
 {
     if (is_file_on_fs(path, EXT4_SUPER_MAGIC) && is_exec_in_path("e4defrag")) {
-        spawn_and_wait("e4defrag", 1, path);
-    } else if (is_file_on_fs(path, BTRFS_SUPER_MAGIC)) {
+        try_spawn_and_wait("e4defrag", 1, path);
+        return;
+    }
+
+    if (is_file_on_fs(path, BTRFS_SUPER_MAGIC)) {
         struct utsname utsbuf;
 
         if (uname(&utsbuf) < 0)
@@ -700,9 +746,13 @@ static void perform_fs_specific_checks(const char *path)
             log_fatal("Swap files are not supported on Btrfs running on kernel %s", utsbuf.release);
 
         if (is_exec_in_path("btrfs"))
-            spawn_and_wait("btrfs", 3, "filesystem", "defragment", path);
-    } else if (is_file_on_fs(path, XFS_SUPER_MAGIC) && is_exec_in_path("xfs_fsr")) {
-        spawn_and_wait("xfs_fsr", 2, "-v", path);
+            try_spawn_and_wait("btrfs", 3, "filesystem", "defragment", path);
+        return;
+    }
+
+    if (is_file_on_fs(path, XFS_SUPER_MAGIC) && is_exec_in_path("xfs_fsr")) {
+        try_spawn_and_wait("xfs_fsr", 2, "-v", path);
+        return;
     }
 }
 
