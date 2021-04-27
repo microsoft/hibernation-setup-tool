@@ -1096,7 +1096,7 @@ static void ensure_swap_is_enabled(const struct swap_file *swap, bool created)
 
     if (swapon(swap->path, 0) < 0) {
         if (errno == EINVAL && !created)
-            log_fatal("%s exists but kernel isn't accepting it as a swap file. Try removing it and re-running the agent.");
+            log_fatal("%s exists but kernel isn't accepting it as a swap file. Try removing it and re-running the agent.", swap->path);
 
         if (errno != EBUSY)
             log_fatal("Could not enable swap file: %s", strerror(errno));
