@@ -143,23 +143,22 @@ static size_t parse_size_or_die(const char *ptr, const char expected_end, char *
     return parsed;
 }
 
-static char *find_executable_in_path(const char *name, const char *path_env)
+static const char *find_executable_in_path(const char *name, const char *path_env, char path_buf[static PATH_MAX])
 {
     if (!path_env)
         path_env = "/bin:/sbin:/usr/bin:/usr/sbin";
 
     while (*path_env) {
         const char *p = strchr(path_env, ':');
-        char path[PATH_MAX];
         int ret;
 
         if (!p) {
             /* Last segment of $PATH */
-            ret = snprintf(path, PATH_MAX, "%s/%s", path_env, name);
+            ret = snprintf(path_buf, PATH_MAX, "%s/%s", path_env, name);
             path_env = "";
         } else if (p - path_env) {
             /* Middle segments */
-            ret = snprintf(path, PATH_MAX, "%.*s/%s", (int)(p - path_env), path_env, name);
+            ret = snprintf(path_buf, PATH_MAX, "%.*s/%s", (int)(p - path_env), path_env, name);
             path_env = p + 1;
         } else {
             /* Empty segment or non-root directory? Skip. */
@@ -169,11 +168,11 @@ static char *find_executable_in_path(const char *name, const char *path_env)
         if (ret < 0 || ret >= PATH_MAX)
             log_fatal("Building path to determine if %s exists would overflow buffer", name);
 
-        if (path[0] != '/')
+        if (path_buf[0] != '/')
             continue;
 
-        if (!access(path, X_OK))
-            return strdup(path);
+        if (!access(path_buf, X_OK))
+            return path_buf;
     }
 
     return NULL;
@@ -181,12 +180,8 @@ static char *find_executable_in_path(const char *name, const char *path_env)
 
 static bool is_exec_in_path(const char *name)
 {
-    char *path = find_executable_in_path(name, getenv("PATH"));
-    bool found = path != NULL;
-
-    free(path);
-
-    return found;
+    char path_buf[PATH_MAX];
+    return find_executable_in_path(name, getenv("PATH"), path_buf) != NULL;
 }
 
 static struct swap_file *new_swap_file(const char *path, size_t capacity)
@@ -1140,21 +1135,22 @@ static void ensure_swap_is_enabled(const struct swap_file *swap, bool created)
 
 static void ensure_udev_rules_are_installed(void)
 {
+    char systemctl_path_buf[PATH_MAX];
     const char *udev_rule_path;
-    char *systemctl_path;
+    const char *systemctl_path;
 
-    systemctl_path = find_executable_in_path("systemctl", NULL);
+    systemctl_path = find_executable_in_path("systemctl", NULL, systemctl_path_buf);
     if (!systemctl_path) {
         log_info("systemctl not found or not executable, udev rule won't work");
         return;
     }
     if (!is_exec_in_path("udevadm")) {
         log_info("udevadm has not been found in $PATH; maybe system doesn't use systemd?");
-        goto out;
+        return;
     }
     if (access("/sys/bus/vmbus", F_OK) < 0) {
         log_info("VM isn't running on Hyper-V, so udev rule is not necessary.");
-        goto out;
+        return;
     }
 
     if (!access("/usr/lib/udev/rules.d", F_OK)) {
@@ -1165,7 +1161,7 @@ static void ensure_udev_rules_are_installed(void)
         udev_rule_path = "/lib/udev/rules.d/99-vm-hibernation.rules";
     } else {
         log_info("Couldn't find where udev stores the rules.  VM may not hibernate.");
-        goto out;
+        return;
     }
 
     FILE *rule_file = fopen(udev_rule_path, "we");
@@ -1182,9 +1178,6 @@ static void ensure_udev_rules_are_installed(void)
     /* This isn't strictly necessary, but do it anyway just in case. */
     spawn_and_wait("udevadm", 2, "control", "--reload-rules");
     spawn_and_wait("udevadm", 1, "trigger");
-
-out:
-    free(systemctl_path);
 }
 
 int main(int argc, char *argv[])
