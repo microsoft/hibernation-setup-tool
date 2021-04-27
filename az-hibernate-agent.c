@@ -143,9 +143,10 @@ static size_t parse_size_or_die(const char *ptr, const char expected_end, char *
     return parsed;
 }
 
-static bool is_exec_in_path(const char *name)
+static char *find_executable_in_path(const char *name, const char *path_env)
 {
-    const char *path_env = getenv("PATH") ? : "/bin:/sbin:/usr/bin:/usr/sbin";
+    if (!path_env)
+        path_env = "/bin:/sbin:/usr/bin:/usr/sbin";
 
     while (*path_env) {
         const char *p = strchr(path_env, ':');
@@ -172,10 +173,20 @@ static bool is_exec_in_path(const char *name)
             continue;
 
         if (!access(path, X_OK))
-            return true;
+            return strdup(path);
     }
 
-    return false;
+    return NULL;
+}
+
+static bool is_exec_in_path(const char *name)
+{
+    char *path = find_executable_in_path(name, getenv("PATH"));
+    bool found = path != NULL;
+
+    free(path);
+
+    return found;
 }
 
 static struct swap_file *new_swap_file(const char *path, size_t capacity)
@@ -1129,22 +1140,21 @@ static void ensure_swap_is_enabled(const struct swap_file *swap, bool created)
 
 static void ensure_udev_rules_are_installed(void)
 {
-    static const char rule[] = "SUBSYSTEM==\"vmbus\", ACTION==\"change\", "
-                               "DRIVER==\"hv_utils\", ENV{EVENT}==\"hibernate\", "
-                               "RUN+=\"/usr/bin/systemctl hibernate\"\n";
     const char *udev_rule_path;
+    char *systemctl_path;
 
-    if (!is_executable_in_path("udevadm")) {
-        log_info("udevadm has not been found in $PATH; maybe system doesn't use systemd?");
+    systemctl_path = find_executable_in_path("systemctl", NULL);
+    if (!systemctl_path) {
+        log_info("systemctl not found or not executable, udev rule won't work");
         return;
     }
-    if (access("/usr/bin/systemctl", X_OK) < 0) {
-        log_info("/usr/bin/systemctl not found or not executable, udev rule won't work");
-        return;
+    if (!is_exec_in_path("udevadm")) {
+        log_info("udevadm has not been found in $PATH; maybe system doesn't use systemd?");
+        goto out;
     }
     if (access("/sys/bus/vmbus", F_OK) < 0) {
         log_info("VM isn't running on Hyper-V, so udev rule is not necessary.");
-        return;
+        goto out;
     }
 
     if (!access("/usr/lib/udev/rules.d", F_OK)) {
@@ -1155,13 +1165,16 @@ static void ensure_udev_rules_are_installed(void)
         udev_rule_path = "/lib/udev/rules.d/99-vm-hibernation.rules";
     } else {
         log_info("Couldn't find where udev stores the rules.  VM may not hibernate.");
-        return;
+        goto out;
     }
 
     FILE *rule_file = fopen(udev_rule_path, "we");
     if (!rule_file)
         log_fatal("Could not open '%s' for writing: %s", udev_rule_path, strerror(errno));
-    fwrite(rule, sizeof(rule) - 1, 1, rule_file);
+    fprintf(rule_file,
+            "SUBSYSTEM==\"vmbus\", ACTION==\"change\", "
+            "DRIVER==\"hv_utils\", ENV{EVENT}==\"hibernate\", "
+            "RUN+=\"%s hibernate\"\n", systemctl_path);
     fclose(rule_file);
 
     log_info("udev rule to hibernate with systemd set up in %s.  Telling udev about it.", udev_rule_path);
@@ -1169,6 +1182,9 @@ static void ensure_udev_rules_are_installed(void)
     /* This isn't strictly necessary, but do it anyway just in case. */
     spawn_and_wait("udevadm", 2, "control", "--reload-rules");
     spawn_and_wait("udevadm", 1, "trigger");
+
+out:
+    free(systemctl_path);
 }
 
 int main(int argc, char *argv[])
