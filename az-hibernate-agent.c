@@ -653,12 +653,27 @@ static bool try_zeroing_out_with_fallocate(const char *path, off_t size)
     return true;
 }
 
-static bool try_vspawn_and_wait(const char *program, char **argv)
+static bool try_vspawn_and_wait(const char *program, int n_args, va_list ap)
 {
     pid_t pid;
     int rc;
+    char **argv;
+
+    argv = calloc(n_args + 2, sizeof(char *));
+    if (!argv) {
+        log_info("Couldn't allocate memory for argument array");
+        return false;
+    }
+
+    va_start(ap, n_args);
+    argv[0] = (char *)program;
+    for (int i = 1; i <= n_args; i++)
+        argv[i] = va_arg(ap, char *);
+    va_end(ap);
 
     rc = posix_spawnp(&pid, program, NULL, NULL, argv, NULL);
+
+    free(argv);
 
     if (rc != 0) {
         log_info("Could not spawn %s: %s", program, strerror(rc));
@@ -692,23 +707,11 @@ static bool try_vspawn_and_wait(const char *program, char **argv)
 static bool try_spawn_and_wait(const char *program, int n_args, ...)
 {
     va_list ap;
-    char **argv;
-
-    argv = calloc(n_args + 2, sizeof(char *));
-    if (!argv) {
-        log_info("Couldn't allocate memory for argument array");
-        return false;
-    }
+    bool spawned;
 
     va_start(ap, n_args);
-    argv[0] = (char *)program;
-    for (int i = 1; i <= n_args; i++)
-        argv[i] = va_arg(ap, char *);
+    spawned = try_vspawn_and_wait(program, n_args, ap);
     va_end(ap);
-
-    bool spawned = try_vspawn_and_wait(program, argv);
-
-    free(argv);
 
     return spawned;
 }
@@ -716,21 +719,11 @@ static bool try_spawn_and_wait(const char *program, int n_args, ...)
 static void spawn_and_wait(const char *program, int n_args, ...)
 {
     va_list ap;
-    char **argv;
-
-    argv = calloc(n_args + 2, sizeof(char *));
-    if (!argv)
-        log_fatal("Couldn't allocate memory for argument array");
+    bool spawned;
 
     va_start(ap, n_args);
-    argv[0] = (char *)program;
-    for (int i = 1; i <= n_args; i++)
-        argv[i] = va_arg(ap, char *);
+    spawned = try_vspawn_and_wait(program, n_args, ap);
     va_end(ap);
-
-    bool spawned = try_vspawn_and_wait(program, argv);
-
-    free(argv);
 
     if (!spawned)
         log_fatal("Aborting program due to error condition when spawning %s", program);
