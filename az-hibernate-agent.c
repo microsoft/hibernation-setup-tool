@@ -59,6 +59,11 @@
 
 static const char swap_file_name[] = "/hibfile.sys";
 
+/* Prefix is needed when not running as a service.  Output from this the tool is fed to the
+ * system log while systemd is processing the request to hibernate.  This makes it easier to
+ * grep for az-hibernate-agent there too in case of a failure. */
+static bool log_needs_prefix = false;
+
 struct swap_file {
     size_t capacity;
     char path[];
@@ -72,9 +77,14 @@ static int ioprio_set(int which, int who, int ioprio)
 static void log_impl(const char *type, const char *fmt, va_list ap)
 {
     flockfile(stdout);
+
+    if (log_needs_prefix)
+        printf("az-hibernate-agent: ");
+
     printf("%s: ", type);
     vprintf(fmt, ap);
     printf("\n");
+
     funlockfile(stdout);
 }
 
