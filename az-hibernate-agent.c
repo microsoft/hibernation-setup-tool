@@ -296,7 +296,11 @@ static size_t swap_needed_size(size_t phys_mem)
         return 2 * phys_mem;
     if (phys_mem <= 64 * GIGA_BYTES)
         return (3 * phys_mem) / 2;
-    log_fatal("Hibernation not recommended for a machine with more than 64GB of RAM");
+    /* Note: Fedora documentation doesn't recommend hibernation for machines over 64GB of RAM,
+     * but we're extending this for a bit. */
+    if (phys_mem <= 256 * GIGA_BYTES)
+        return (5 * phys_mem) / 4;
+    log_fatal("Hibernation not recommended for a machine with more than 256GB of RAM");
 }
 
 static char *get_uuid_for_dev_path(const char *path)
