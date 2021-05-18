@@ -444,6 +444,11 @@ static char *read_first_line_from_file(const char *path, char buffer[static 1024
     return buffer;
 }
 
+static bool is_hyperv(void)
+{
+    return !access("/sys/bus/vmbus", F_OK);
+}
+
 static bool is_hibernation_enabled_for_vm(void)
 {
     char buffer[1024];
@@ -474,7 +479,7 @@ static bool is_hibernation_enabled_for_vm(void)
         log_info("Unknown VM hibernation support mode found: %s", entry);
     }
 
-    if (!access("/sys/bus/vmbus", F_OK)) {
+    if (is_hyperv()) {
         log_info("This is a Hyper-V VM, checking if hibernation is enabled through VMBus events.");
         /* FIXME: this file isn't currently available in the public Azure images and/or Hyper-V
          * available publicly on Azure.  Only consider it as a way to disable this agent if
@@ -1154,7 +1159,7 @@ static void ensure_udev_rules_are_installed(void)
         log_info("udevadm has not been found in $PATH; maybe system doesn't use systemd?");
         return;
     }
-    if (access("/sys/bus/vmbus", F_OK) < 0) {
+    if (!is_hyperv()) {
         log_info("VM isn't running on Hyper-V, so udev rule is not necessary.");
         return;
     }
