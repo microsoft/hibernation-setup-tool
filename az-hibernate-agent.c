@@ -10,12 +10,14 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <ftw.h>
 #include <linux/falloc.h>
 #include <linux/fs.h>
 #include <linux/ioctl.h>
 #include <linux/magic.h>
 #include <linux/suspend_ioctls.h>
 #include <mntent.h>
+#include <mount.h>
 #include <spawn.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -70,6 +72,17 @@ static bool log_needs_prefix = false;
  * this agent can run as a hook and we want to make sure that the messages there are logged
  * somewhere. */
 static bool log_needs_syslog = false;
+
+/* This is a link pointing to a file in a tmpfs filesystem and is mostly used to detect
+ * if we got a cold boot or not. */
+static const char hibernate_lock_file_name[] = "/etc/az-hibernate-agent.last_hibernation";
+
+enum host_vm_notification {
+    HOST_VM_NOTIFY_COLD_BOOT,                /* Sent every time system cold boots */
+    HOST_VM_NOTIFY_HIBERNATING,              /* Sent right before hibernation */
+    HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION, /* Sent right after hibernation */
+    HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED,   /* Sent on errors when hibernating or resuming */
+};
 
 struct swap_file {
     size_t capacity;
@@ -1172,10 +1185,6 @@ static void ensure_udev_rules_are_installed(void)
         log_info("udevadm has not been found in $PATH; maybe system doesn't use systemd?");
         return;
     }
-    if (!is_hyperv()) {
-        log_info("VM isn't running on Hyper-V, so udev rule is not necessary.");
-        return;
-    }
 
     if (!access("/usr/lib/udev/rules.d", F_OK)) {
         udev_rule_path = "/usr/lib/udev/rules.d/99-vm-hibernation.rules";
@@ -1204,14 +1213,311 @@ static void ensure_udev_rules_are_installed(void)
     spawn_and_wait("udevadm", 1, "trigger");
 }
 
+static const char *readlink0(const char *path, char buf[static PATH_MAX])
+{
+    ssize_t len = readlink(path, buf, PATH_MAX - 1);
+
+    if (len < 0)
+        return NULL;
+
+    buf[len] = '\0';
+    return buf;
+}
+
+static bool is_cold_boot(void)
+{
+    /* We detect cold boot by creating a file in a tmpfs filesystem right
+     * before asking system to hibernate.  If this file is not there during
+     * agent startup, then it's a cold boot and resuming failed; if it's
+     * still there, then we successfully resumed.  */
+    char lock_file_path_buf[4096];
+    const char *lock_file_path;
+
+    lock_file_path = readlink0(hibernate_lock_file_name, lock_file_path_buf);
+    if (lock_file_path) {
+        unlink(hibernate_lock_file_name);
+
+        if (access(lock_file_path, F_OK) < 0)
+            return true;
+
+        unlink(lock_file_path);
+    }
+
+    return false;
+}
+
+static void notify_vm_host(enum host_vm_notification notification)
+{
+    static const char *types[] = {
+        [HOST_VM_NOTIFY_COLD_BOOT] = "cold-boot",
+        [HOST_VM_NOTIFY_HIBERNATING] = "hibernating",
+        [HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION] = "resumed-from-hibernation",
+        [HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED] = "pre-hibernation-failed",
+    };
+
+    log_info("FIXME: notifying VM host: %s", types[notification]);
+}
+
+static int recursive_rmdir_cb(const char *fpath, const struct stat *st, int typeflag, struct FTW *ftwbuf)
+{
+    (void)st;
+    (void)ftwbuf;
+
+    switch (typeflag) {
+    case FTW_SLN: /* symbolic link pointing to a non-existing file */
+    case FTW_F: /* regular file */
+        return unlink(fpath) == 0 ? FTW_CONTINUE : FTW_STOP;
+
+    case FTW_D: /* directory */
+        return rmdir(fpath) == 0 ? FTW_CONTINUE : FTW_STOP;
+
+    case FTW_SL:
+        /* We refuse to follow symbolic links as it might lead us to some directory outside
+         * the one we're trying to remove.  The only symlinks we care about are those that
+         * point to a path that does not exist, but we delete those before doing anything
+         * anyway. */
+        log_info("%s is a symbolic link. Refusing to follow.", fpath);
+        return FTW_STOP;
+
+    case FTW_DNR:
+        log_info("Can't read directory %s", fpath);
+        return FTW_STOP;
+
+    case FTW_NS:
+        log_info("stat() failed on %s", fpath);
+        return FTW_STOP;
+
+    default:
+        log_info("nftw callback called with unknown typeflag %d, stopping", typeflag);
+        return FTW_STOP;
+    }
+}
+
+static bool recursive_rmdir(const char *path)
+{
+    return nftw(path, recursive_rmdir_cb, 16, FTW_DEPTH | FTW_PHYS | FTW_ACTIONRETVAL) != FTW_STOP;
+}
+
+static int handle_pre_systemd_suspend_notification(const char *action)
+{
+    if (!strcmp(action, "hibernate")) {
+        log_info("Running pre-hibernate hooks");
+
+        /* Creating this directory with the right permissions is racy as
+         * we're writing to tmp which is world-writable.  So do our best
+         * here to ensure that if this for loop terminates normally, the
+         * directory is empty and readable/writable only by us.  In normal
+         * scenarios (i.e. nobody else tried creating a directory with that
+         * name), this will succeed the first try.  This directory will be
+         * removed when we resume. */
+        for (int try = 0; ; try++) {
+            if (try > 10) {
+                notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+                log_fatal("Tried too many times to create /tmp/az-hibernate-agent and failed. Giving up");
+            }
+
+            if (!mkdir("/tmp/az-hibernate-agent", 0700))
+                break;
+            if (errno != EEXIST) {
+                notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+                log_fatal("Couldn't create location to store hibernation agent state: %s", strerror(errno));
+            }
+
+            struct stat st;
+            if (!stat("/tmp/az-hibernate-agent", &st)) {
+                if (S_ISDIR(st.st_mode)) {
+                    log_info("/tmp/az-hibernate-agent exists, removing it");
+
+                    if (umount2("/tmp/az-hibernate-agent", UMOUNT_NOFOLLOW | MNT_DETACH) < 0) {
+                        /* See comment related to the umount2() call in handle_post_systemd_suspend_notification(). */
+                        if (errno != EINVAL)
+                            log_fatal("Error while unmounting /tmp/az-hibernate-agent: %s", strerror(errno));
+                    }
+
+                    if (recursive_rmdir("/tmp/az-hibernate-agent"))
+                        continue;
+
+                    notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+                    log_fatal("Couldn't remove /tmp/az-hibernate-agent directory before proceeding");
+                }
+
+                log_info("/tmp/az-hibernate-agent exists and isn't a directory! Removing it and trying again (try %d)", try);
+
+                if (!unlink("/tmp/az-hibernate-agent"))
+                    continue;
+
+                notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+                log_fatal("Couldn't remove the file: %s, giving up", strerror(errno));
+            }
+
+            log_info("/tmp/az-hibernate-agent couldn't be found but mkdir() told us it exists, trying again (try %d)", try);
+            continue;
+        }
+
+        if (!is_file_on_fs("/tmp/az-hibernate-agent", TMPFS_MAGIC)) {
+            log_info("/tmp isn't a tmpfs filesystem; trying to mount /tmp/az-hibernate-agent as such");
+
+            if (mount("tmpfs", "/tmp/az-hibernate-agent", "tmpfs", 0, NULL) < 0) {
+                notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+                log_fatal("Couldn't mount temporary filesystem: %s. We need this to detect cold boots!", strerror(errno));
+            }
+        }
+
+        char pattern[] = "/tmp/az-hibernate-agent/hibernatedXXXXXX";
+        int fd = mkostemp(pattern, O_CLOEXEC);
+        if (fd < 0) {
+            notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+            log_fatal("Couldn't create a temporary file: %s", strerror(errno));
+        }
+        close(fd);
+
+        if (link(pattern, hibernate_lock_file_name) < 0) {
+            notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+            log_fatal("Couldn't link %s to %s: %s", pattern, hibernate_lock_file_name, strerror(errno));
+        }
+
+        notify_vm_host(HOST_VM_NOTIFY_HIBERNATING);
+        log_info("Pre-hibernation hooks executed successfully");
+
+        return 0;
+    }
+
+    log_fatal("Can't handle `pre %s' notifications", action);
+    return 1;
+}
+
+static int handle_post_systemd_suspend_notification(const char *action)
+{
+    if (!strcmp(action, "hibernate")) {
+        char real_path_buf[4096];
+        const char *real_path;
+
+        log_info("Running post-hibernate hooks");
+
+        real_path = readlink0(hibernate_lock_file_name, real_path_buf);
+        if (!real_path) {
+            /* No need to notify host VM here: if link wasn't there, it's most likely that the
+             * pre-hibernation hooks failed to create it in the first place.  Log for debugging
+             * but keep going. */
+            log_info("This is probably fine, but couldn't readlink(%s): %s", hibernate_lock_file_name, strerror(errno));
+        } else if (unlink(real_path) < 0) {
+            log_info("This is fine, but couldn't remove %s: %s", real_path, strerror(errno));
+        }
+        if (unlink(hibernate_lock_file_name) < 0)
+            log_info("This is fine, but couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
+
+        if (umount2("/tmp/az-hibernate-agent", UMOUNT_NOFOLLOW | MNT_DETACH) < 0) {
+            /* EINVAL is returned if this isn't a mount point. This is normal if /tmp was already
+             * a tmpfs and we didn't create and mounted this directory in the pre-hibernate hook.
+             * Calling umount2() is cheaper than checking if this directory is indeed mounted as
+             * a tmpfs directory. */
+            if (errno != EINVAL)
+                log_info("While unmounting /tmp/az-hibernate-agent: %s", strerror(errno));
+        }
+
+        if (!recursive_rmdir("/tmp/az-hibernate-agent"))
+            log_info("While removing /tmp/az-hibernate-agent: %s", strerror(errno));
+
+        notify_vm_host(HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION);
+        log_info("Post-hibernation hooks executed successfully");
+
+        return 0;
+    }
+
+    log_fatal("Can't handle `post %s' notifications", action);
+    return 1;
+}
+
+static int handle_systemd_suspend_notification(const char *argv0, const char *when, const char *action)
+{
+    if (!getenv("SYSTEMD_SLEEP_ACTION")) {
+        log_fatal("These arguments can only be used when called from systemd");
+        return 1;
+    }
+
+    log_needs_prefix = true;
+    log_needs_syslog = true;
+
+    if (!strcmp(when, "pre"))
+        return handle_pre_systemd_suspend_notification(action);
+
+    if (!strcmp(when, "post"))
+        return handle_post_systemd_suspend_notification(action);
+
+    log_fatal("Invalid usage: %s %s %s", argv0, when, action);
+    return 1;
+}
+
+static void link_hook(const char *src, const char *dest)
+{
+    if (link(src, dest) < 0)
+        return log_fatal("Couldn't link %s to %s: %s", src, dest, strerror(errno));
+
+    /* FIXME: Not sure if this is necessary. */
+    log_info("Notifying systemd of new hooks");
+    spawn_and_wait("systemctl", 1, "daemon-reload");
+}
+
+static void ensure_systemd_hooks_are_set_up(void)
+{
+    /* Although the systemd manual cautions against dropping executables or scripts in
+     * this directory, the proposed D-Bus interface (Inhibitor) is not sufficient for
+     * our use case here: we're not trying to inhibit hibernation/suspend, we're just
+     * trying to know when this happened.
+     *
+     * More info: https://www.freedesktop.org/software/systemd/man/systemd-suspend.service.html
+     */
+    const char *execfn = (const char *)getauxval(AT_EXECFN);
+    const char *location_to_link = "/usr/lib/systemd/systemd-sleep";
+    struct stat st;
+    int r;
+
+    r = stat(location_to_link, &st);
+    if (r < 0 && errno == ENOENT) {
+        log_info("Attempting to create hibernate/resume hook directory: %s", location_to_link);
+        if (mkdir(location_to_link, 0755) < 0) {
+            log_info("Couldn't create %s: %s. VM host won't receive suspend/resume notifications.",
+                     location_to_link, strerror(errno));
+            return;
+        }
+    } else if (r < 0) {
+        log_info("Couldn't stat(%s): %s. We need to drop a file there to allow "
+                 "the VM host to be notified of hibernation/resumes.",
+                 location_to_link, strerror(errno));
+        return;
+    } else if (!S_ISDIR(st.st_mode)) {
+        log_info("%s isn't a directory, can't drop a link to the agent there to "
+                 " notify host of hibernation/resume", location_to_link);
+        return;
+    }
+
+    if (execfn)
+        return link_hook(execfn, location_to_link);
+
+    char self_path_buf[PATH_MAX];
+    const char *self_path = readlink0("/proc/self/exe", self_path_buf);
+    if (self_path)
+        return link_hook(self_path, location_to_link);
+
+    return log_fatal("Both getauxval() and readlink(/proc/self/exe) failed. "
+                     "Couldn't determine location of this executable to install "
+                     "systemd hooks");
+}
+
 int main(int argc, char *argv[])
 {
-    (void)argc;
-    (void)argv;
-
     if (!is_hibernation_enabled_for_vm()) {
         log_info("Hibernation not enabled for this VM.");
         return 0;
+    }
+
+    if (is_hyperv()) {
+        /* We only handle these things here on Hyper-V VMs because it's the only
+         * hypervisor we know that might need these kinds of notifications. */
+        if (argc == 3)
+            return handle_systemd_suspend_notification(argv[0], argv[1], argv[2]);
+        if (is_cold_boot())
+            notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
     }
 
     size_t total_ram = physical_memory();
@@ -1272,7 +1578,10 @@ int main(int argc, char *argv[])
     if (!update_swap_offset(swap))
         log_fatal("Could not update swap offset.");
 
-    ensure_udev_rules_are_installed();
+    if (is_hyperv()) {
+        ensure_udev_rules_are_installed();
+        ensure_systemd_hooks_are_set_up();
+    }
 
     log_info("Swap file for VM hibernation set up successfully");
 
