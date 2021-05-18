@@ -134,7 +134,6 @@ static size_t parse_size_or_die(const char *ptr, const char expected_end, char *
         parsed = strtoul(ptr, endptr, 10);
     } else {
         log_fatal("Invalid size of size_t: %zu", sizeof(size_t));
-        __builtin_unreachable();
     }
 
     if (errno || (endptr && **endptr != expected_end))
