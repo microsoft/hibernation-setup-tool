@@ -434,7 +434,6 @@ static long determine_block_size_for_root_fs(void)
     }
 
     log_fatal("Could not obtain sector size for root partition: %s", strerror(errno));
-    __builtin_unreachable();
 }
 
 static char *read_first_line_from_file(const char *path, char buffer[static 1024])
