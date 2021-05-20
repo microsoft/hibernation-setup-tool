@@ -490,6 +490,7 @@ static bool is_hibernation_enabled_for_vm(void)
         log_info("VM supports hibernation only with the suspend method. This is not ideal.");
     } else {
         log_info("Unknown VM hibernation support mode found: %s", entry);
+        return false;
     }
 
     if (is_hyperv()) {
