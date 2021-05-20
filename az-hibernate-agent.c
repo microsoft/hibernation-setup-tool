@@ -32,6 +32,7 @@
 #include <sys/vfs.h>
 #include <sys/wait.h>
 #include <syscall.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #define MEGA_BYTES (1ul<<20)
@@ -64,6 +65,12 @@ static const char swap_file_name[] = "/hibfile.sys";
  * grep for az-hibernate-agent there too in case of a failure. */
 static bool log_needs_prefix = false;
 
+/* We don't always want to spam syslog: spamming stdout is fine as this is supposed to be
+ * executed as a daemon in systemd and this output will be stored in the journal.  However,
+ * this agent can run as a hook and we want to make sure that the messages there are logged
+ * somewhere. */
+static bool log_needs_syslog = false;
+
 struct swap_file {
     size_t capacity;
     char path[];
@@ -74,14 +81,20 @@ static int ioprio_set(int which, int who, int ioprio)
     return (int)syscall(SYS_ioprio_set, which, who, ioprio);
 }
 
-static void log_impl(const char *type, const char *fmt, va_list ap)
+static void log_impl(int log_level, const char *fmt, va_list ap)
 {
+    if (log_needs_syslog)
+        vsyslog(log_level, fmt, ap);
+
     flockfile(stdout);
 
     if (log_needs_prefix)
         printf("az-hibernate-agent: ");
 
-    printf("%s: ", type);
+    if (loglevel & LOG_INFO)
+        printf("INFO: ");
+    else if (loglevel & LOG_ERR)
+        printf("ERROR: ");
     vprintf(fmt, ap);
     printf("\n");
 
@@ -94,7 +107,7 @@ static void log_info(const char *fmt, ...)
     va_list ap;
 
     va_start(ap, fmt);
-    log_impl("INFO", fmt, ap);
+    log_impl(LOG_INFO, fmt, ap);
     va_end(ap);
 }
 
@@ -105,7 +118,7 @@ static void log_fatal(const char *fmt, ...)
     va_list ap;
 
     va_start(ap, fmt);
-    log_impl("FATAL", fmt, ap);
+    log_impl(LOG_ERR, fmt, ap);
     va_end(ap);
 
     exit(1);
