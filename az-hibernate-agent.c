@@ -673,7 +673,7 @@ static bool try_zeroing_out_with_fallocate(const char *path, off_t size)
 
     if (fallocate(fd, 0, 0, size) < 0) {
         if (errno == ENOSPC) {
-            log_fatal("System ran out of disk space while allocating hibernation file");
+            log_fatal("System ran out of disk space while allocating hibernation file. It needs %zd MiB", size / MEGA_BYTES);
         } else {
             log_fatal("Could not allocate %s: %s", path, strerror(errno));
         }
