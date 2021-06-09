@@ -1230,7 +1230,7 @@ static bool is_cold_boot(void)
      * before asking system to hibernate.  If this file is not there during
      * agent startup, then it's a cold boot and resuming failed; if it's
      * still there, then we successfully resumed.  */
-    char lock_file_path_buf[4096];
+    char lock_file_path_buf[PATH_MAX];
     const char *lock_file_path;
 
     lock_file_path = readlink0(hibernate_lock_file_name, lock_file_path_buf);
@@ -1389,7 +1389,7 @@ static int handle_pre_systemd_suspend_notification(const char *action)
 static int handle_post_systemd_suspend_notification(const char *action)
 {
     if (!strcmp(action, "hibernate")) {
-        char real_path_buf[4096];
+        char real_path_buf[PATH_MAX];
         const char *real_path;
 
         log_info("Running post-hibernate hooks");
