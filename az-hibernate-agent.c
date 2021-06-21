@@ -474,12 +474,52 @@ static bool is_hyperv(void)
     return !access("/sys/bus/vmbus", F_OK);
 }
 
+static bool is_running_in_container(void)
+{
+    FILE *cgroup;
+    char buffer[1024];
+    bool ret = false;
+
+    cgroup = fopen("/proc/1/cgroup", "re");
+    if (!cgroup)
+        log_fatal("Could not read /proc/1/cgroup to determine if we're running in a container");
+
+    while (fgets(buffer, sizeof(buffer), cgroup)) {
+        const char *first_colon = strchr(buffer, ':');
+
+        if (!first_colon)
+            continue;
+
+        /* When running in a container, PID 1 will have a line in
+         * /proc/1/cgroup with "0::/" as a content; whereas, when running in
+         * the host, it might have something like "0::/init.slice".
+         *
+         * Things might be different with anything other than systemd, but
+         * since we're supporting systemd-only distros at this point, it's
+         * safer to use this method rather than rely on things like the
+         * presence of /.dockerenv or something like that as the container
+         * runtime not be docker.  */
+        if (!strcmp(first_colon, "::/\n")) {
+            ret = true;
+            break;
+        }
+    }
+
+    fclose(cgroup);
+
+    return ret;
+}
+
 static bool is_hibernation_enabled_for_vm(void)
 {
     char buffer[1024];
     char *entry;
 
-    /* FIXME: check if running under a container and bail out */
+    if (is_running_in_container()) {
+        log_info("We're running in a container; this isn't supported.");
+        return false;
+    }
+
     if (access("/dev/snapshot", F_OK) != 0) {
         log_info("Kernel does not support hibernation or /dev/snapshot has not been found.");
         return false;
