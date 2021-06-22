@@ -755,11 +755,9 @@ static bool try_vspawn_and_wait(const char *program, int n_args, va_list ap)
         return false;
     }
 
-    va_start(ap, n_args);
     argv[0] = (char *)program;
     for (int i = 1; i <= n_args; i++)
         argv[i] = va_arg(ap, char *);
-    va_end(ap);
 
     rc = posix_spawnp(&pid, program, NULL, NULL, argv, NULL);
 
