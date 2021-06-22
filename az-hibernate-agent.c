@@ -1295,7 +1295,7 @@ static void notify_vm_host(enum host_vm_notification notification)
         [HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED] = "pre-hibernation-failed",
     };
 
-    log_info("FIXME: notifying VM host: %s", types[notification]);
+    log_info("Changed hibernation state to: %s", types[notification]);
 }
 
 static int recursive_rmdir_cb(const char *fpath, const struct stat *st, int typeflag, struct FTW *ftwbuf)
