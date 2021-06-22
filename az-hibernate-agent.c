@@ -110,9 +110,9 @@ static void log_impl(int log_level, const char *fmt, va_list ap)
     if (log_needs_prefix)
         printf("az-hibernate-agent: ");
 
-    if (loglevel & LOG_INFO)
+    if (log_level & LOG_INFO)
         printf("INFO: ");
-    else if (loglevel & LOG_ERR)
+    else if (log_level & LOG_ERR)
         printf("ERROR: ");
     vprintf(fmt, ap);
     printf("\n");
