@@ -6,6 +6,12 @@
 // Licensed under the terms of the MIT license.
 
 #define _GNU_SOURCE
+
+/* sys/mount.h has to be included before linux/fs.h
+ * https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=898743
+ */
+#include <sys/mount.h>
+
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -17,7 +23,6 @@
 #include <linux/magic.h>
 #include <linux/suspend_ioctls.h>
 #include <mntent.h>
-#include <mount.h>
 #include <spawn.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -25,16 +30,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syscall.h>
 #include <sys/ioctl.h>
-#include <sys/stat.h>
+#include <syslog.h>
+#include <sys/auxv.h>
 #include <sys/statfs.h>
+#include <sys/stat.h>
 #include <sys/swap.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
-#include <syscall.h>
-#include <syslog.h>
 #include <unistd.h>
 
 #define MEGA_BYTES (1ul<<20)
