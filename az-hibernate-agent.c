@@ -307,8 +307,6 @@ static size_t physical_memory(void)
 
             total = parse_size_or_die(buffer + mem_total_len, ' ', &endptr);
 
-            /* FIXME: Check for overflow? */
-            /* FIXME: Confirm in kernel if units are always kB or if MB/GB/TB are actually used */
             if (!strcmp(endptr, " kB\n"))
                 total *= 1024;
             else if (!strcmp(endptr, " MB\n"))
@@ -553,10 +551,6 @@ static bool is_hibernation_enabled_for_vm(void)
 
     if (is_hyperv()) {
         log_info("This is a Hyper-V VM, checking if hibernation is enabled through VMBus events.");
-        /* FIXME: this file isn't currently available in the public Azure images and/or Hyper-V
-         * available publicly on Azure.  Only consider it as a way to disable this agent if
-         * the file is *present* and has a value other than "1"/enabled.  Once this is fully
-         * supported, revisit this. */
         entry = read_first_line_from_file("/sys/bus/vmbus/hibernation", buffer);
         if (entry) {
             if (!strcmp(entry, "1")) {
@@ -623,11 +617,9 @@ static bool try_zero_out_with_write(const char *path, off_t needed_size)
         return false;
     }
 
-    /* FIXME: Would it be better to determine the block size for swap_file_name instead? */
     long block_size = determine_block_size_for_root_fs();
     const uint32_t pattern = 'T' << 24 | 'F' << 16 | 'S' << 8 | 'M';
     for (off_t offset = 0; offset < needed_size; offset += block_size) {
-        /* FIXME: use pwritev()? */
         ssize_t written = pwrite(fd, &pattern, sizeof(pattern), offset);
 
         if (written < 0) {
@@ -636,14 +628,7 @@ static bool try_zero_out_with_write(const char *path, off_t needed_size)
             goto out;
         }
     }
-    /* FIXME: maybe a better strategy here would be calling
-     * posix_fadvise(DONTNEED) every PAGE_SIZE/block_size times to discard
-     * the data from the page cache, and not open it in O_DIRECT mode?
-     * Should avoid having to write a pattern in the whole file without
-     * thrashing the page cache -- O_DIRECT requires block size to match
-     * the device block size, and we could just write a small amount of
-     * data every block_size bytes instead of the whole block_size region,
-     * saving us precious time in systems with lots of RAM and slow disks */
+
     fdatasync(fd);
 out:
     close(fd);
@@ -1497,7 +1482,6 @@ static void link_hook(const char *src, const char *dest)
     if (link(src, dest) < 0)
         return log_fatal("Couldn't link %s to %s: %s", src, dest, strerror(errno));
 
-    /* FIXME: Not sure if this is necessary. */
     log_info("Notifying systemd of new hooks");
     spawn_and_wait("systemctl", 1, "daemon-reload");
 }
@@ -1582,8 +1566,6 @@ int main(int argc, char *argv[])
     }
 
     if (swap && swap->capacity < needed_swap) {
-        /* FIXME: maybe do the destroy/create dance only if expanding the file results
-         * in a file with holes?  Should be more efficient.  */
         log_info("Swap file %s has capacity of %zu MB but needs %zu MB. Recreating. "
                  "System will run without a swap file while this is being set up.",
                  swap->path, swap->capacity / MEGA_BYTES, needed_swap / MEGA_BYTES);
