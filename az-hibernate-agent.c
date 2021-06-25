@@ -30,21 +30,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syscall.h>
-#include <sys/ioctl.h>
-#include <syslog.h>
 #include <sys/auxv.h>
-#include <sys/statfs.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 #include <sys/swap.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
+#include <syscall.h>
+#include <syslog.h>
 #include <unistd.h>
 
-#define MEGA_BYTES (1ul<<20)
-#define GIGA_BYTES (1ul<<30)
+#define MEGA_BYTES (1ul << 20)
+#define GIGA_BYTES (1ul << 30)
 
 #ifndef SEEK_HOLE
 #define SEEK_HOLE 4
@@ -95,10 +95,7 @@ struct swap_file {
     char path[];
 };
 
-static int ioprio_set(int which, int who, int ioprio)
-{
-    return (int)syscall(SYS_ioprio_set, which, who, ioprio);
-}
+static int ioprio_set(int which, int who, int ioprio) { return (int)syscall(SYS_ioprio_set, which, who, ioprio); }
 
 static void log_impl(int log_level, const char *fmt, va_list ap)
 {
@@ -120,8 +117,7 @@ static void log_impl(int log_level, const char *fmt, va_list ap)
     funlockfile(stdout);
 }
 
-__attribute__((format(printf, 1, 2)))
-static void log_info(const char *fmt, ...)
+__attribute__((format(printf, 1, 2))) static void log_info(const char *fmt, ...)
 {
     va_list ap;
 
@@ -130,9 +126,7 @@ static void log_info(const char *fmt, ...)
     va_end(ap);
 }
 
-__attribute__((format(printf, 1, 2)))
-__attribute__((noreturn))
-static void log_fatal(const char *fmt, ...)
+__attribute__((format(printf, 1, 2))) __attribute__((noreturn)) static void log_fatal(const char *fmt, ...)
 {
     va_list ap;
 
@@ -156,7 +150,7 @@ static char *next_field(char *current)
         current++;
 
     *current = '\0'; /* 0-terminate the previous call to next_field() */
-    current++; /* skip the NUL terminator */
+    current++;       /* skip the NUL terminator */
 
     while (isspace(*current))
         current++;
@@ -426,11 +420,10 @@ static long determine_block_size_for_root_fs(void)
 
     while ((mntent = getmntent(mtab))) {
         if (!strcmp(mntent->mnt_dir, "/")) {
-            int fd = open(mntent->mnt_fsname, O_RDONLY|O_CLOEXEC);
+            int fd = open(mntent->mnt_fsname, O_RDONLY | O_CLOEXEC);
 
             if (fd < 0) {
-                log_fatal("Could not open %s to determine block size: %s",
-                    mntent->mnt_fsname, strerror(errno));
+                log_fatal("Could not open %s to determine block size: %s", mntent->mnt_fsname, strerror(errno));
             }
 
             if (ioctl(fd, BLKSSZGET, &sector_size) < 0)
@@ -473,10 +466,7 @@ static char *read_first_line_from_file(const char *path, char buffer[static 1024
     return buffer;
 }
 
-static bool is_hyperv(void)
-{
-    return !access("/sys/bus/vmbus", F_OK);
-}
+static bool is_hyperv(void) { return !access("/sys/bus/vmbus", F_OK); }
 
 static bool is_running_in_container(void)
 {
@@ -914,7 +904,7 @@ static bool is_kernel_cmdline_correct(const char *dev_uuid, off_t resume_offset)
 
 static struct resume_swap_area get_swap_area(const struct swap_file *swap)
 {
-    int fd = open(swap->path, O_RDONLY|O_CLOEXEC);
+    int fd = open(swap->path, O_RDONLY | O_CLOEXEC);
     struct stat st;
 
     if (fd < 0)
@@ -934,7 +924,7 @@ static struct resume_swap_area get_swap_area(const struct swap_file *swap)
 
     log_info("Swap file %s is at device %ld, offset %d", swap->path, st.st_dev, offset);
 
-    return (struct resume_swap_area) {
+    return (struct resume_swap_area){
         .offset = offset,
         .dev = st.st_dev,
     };
@@ -942,11 +932,7 @@ static struct resume_swap_area get_swap_area(const struct swap_file *swap)
 
 static const char *find_grub_cfg_path(void)
 {
-    static const char *possible_paths[] = {
-        "/boot/grub2/grub.cfg",
-        "/boot/grub/grub.cfg",
-        NULL
-    };
+    static const char *possible_paths[] = {"/boot/grub2/grub.cfg", "/boot/grub/grub.cfg", NULL};
 
     for (int i = 0; possible_paths[i]; i++) {
         if (!access(possible_paths[i], F_OK))
@@ -980,15 +966,14 @@ static bool is_directory_empty(const char *path)
     return !has_file;
 }
 
-static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
-                                                  const struct resume_swap_area swap_area,
-                                                  bool has_grubby,
-                                                  bool has_update_grub2,
-                                                  bool has_grub2_mkconfig)
+static bool update_kernel_cmdline_params_for_grub(
+    const char *dev_uuid, const struct resume_swap_area swap_area, bool has_grubby, bool has_update_grub2, bool has_grub2_mkconfig)
 {
     bool ret_value = true;
 
-    /* Doc: https://docs.fedoraproject.org/en-US/fedora/rawhide/system-administrators-guide/kernel-module-driver-configuration/Working_with_the_GRUB_2_Boot_Loader/#sec-Making_Persistent_Changes_to_a_GRUB_2_Menu_Using_the_grubby_Tool */
+    /* Doc:
+     * https://docs.fedoraproject.org/en-US/fedora/rawhide/system-administrators-guide/kernel-module-driver-configuration/Working_with_the_GRUB_2_Boot_Loader/#sec-Making_Persistent_Changes_to_a_GRUB_2_Menu_Using_the_grubby_Tool
+     */
     log_info("Kernel command line is missing parameters to resume from hibernation.  Trying to patch grub configuration file.");
 
     char *args;
@@ -1032,7 +1017,6 @@ static bool update_kernel_cmdline_params_for_grub(const char *dev_uuid,
         } else {
             log_fatal("Could not determine where the Grub configuration file is");
         }
-
 
         resume_cfg = fopen(grub_cfg_path, "re");
         if (resume_cfg) {
@@ -1103,7 +1087,7 @@ static bool update_swap_offset(const struct swap_file *swap)
 
     log_info("Updating swap offset");
 
-    int fd = open("/dev/snapshot", O_RDONLY|O_CLOEXEC);
+    int fd = open("/dev/snapshot", O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
         log_info("Could not open /dev/snapshot: %s", strerror(errno));
         return false;
@@ -1134,7 +1118,8 @@ static bool update_swap_offset(const struct swap_file *swap)
         if (has_grubby || has_update_grub2 || has_grub2_mkconfig) {
             ret = update_kernel_cmdline_params_for_grub(dev_uuid, swap_area, has_grubby, has_update_grub2, has_grub2_mkconfig);
         } else {
-            log_info("Could not determine how system was booted to update kernel parameters for next boot.  System won't be able to resume until you fix this.");
+            log_info(
+                "Could not determine how system was booted to update kernel parameters for next boot.  System won't be able to resume until you fix this.");
             ret = false;
         }
     }
@@ -1232,7 +1217,8 @@ static void ensure_udev_rules_are_installed(void)
     fprintf(rule_file,
             "SUBSYSTEM==\"vmbus\", ACTION==\"change\", "
             "DRIVER==\"hv_utils\", ENV{EVENT}==\"hibernate\", "
-            "RUN+=\"%s hibernate\"\n", systemctl_path);
+            "RUN+=\"%s hibernate\"\n",
+            systemctl_path);
     fclose(rule_file);
 
     log_info("udev rule to hibernate with systemd set up in %s.  Telling udev about it.", udev_rule_path);
@@ -1294,7 +1280,7 @@ static int recursive_rmdir_cb(const char *fpath, const struct stat *st, int type
 
     switch (typeflag) {
     case FTW_SLN: /* symbolic link pointing to a non-existing file */
-    case FTW_F: /* regular file */
+    case FTW_F:   /* regular file */
         return unlink(fpath) == 0 ? FTW_CONTINUE : FTW_STOP;
 
     case FTW_D: /* directory */
@@ -1322,10 +1308,7 @@ static int recursive_rmdir_cb(const char *fpath, const struct stat *st, int type
     }
 }
 
-static bool recursive_rmdir(const char *path)
-{
-    return nftw(path, recursive_rmdir_cb, 16, FTW_DEPTH | FTW_PHYS | FTW_ACTIONRETVAL) != FTW_STOP;
-}
+static bool recursive_rmdir(const char *path) { return nftw(path, recursive_rmdir_cb, 16, FTW_DEPTH | FTW_PHYS | FTW_ACTIONRETVAL) != FTW_STOP; }
 
 static int handle_pre_systemd_suspend_notification(const char *action)
 {
@@ -1339,7 +1322,7 @@ static int handle_pre_systemd_suspend_notification(const char *action)
          * scenarios (i.e. nobody else tried creating a directory with that
          * name), this will succeed the first try.  This directory will be
          * removed when we resume. */
-        for (int try = 0; ; try++) {
+        for (int try = 0;; try++) {
             if (try > 10) {
                 notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
                 log_fatal("Tried too many times to create /tmp/az-hibernate-agent and failed. Giving up");
@@ -1504,8 +1487,7 @@ static void ensure_systemd_hooks_are_set_up(void)
     if (r < 0 && errno == ENOENT) {
         log_info("Attempting to create hibernate/resume hook directory: %s", location_to_link);
         if (mkdir(location_to_link, 0755) < 0) {
-            log_info("Couldn't create %s: %s. VM host won't receive suspend/resume notifications.",
-                     location_to_link, strerror(errno));
+            log_info("Couldn't create %s: %s. VM host won't receive suspend/resume notifications.", location_to_link, strerror(errno));
             return;
         }
     } else if (r < 0) {
@@ -1515,7 +1497,8 @@ static void ensure_systemd_hooks_are_set_up(void)
         return;
     } else if (!S_ISDIR(st.st_mode)) {
         log_info("%s isn't a directory, can't drop a link to the agent there to "
-                 " notify host of hibernation/resume", location_to_link);
+                 " notify host of hibernation/resume",
+                 location_to_link);
         return;
     }
 
@@ -1554,8 +1537,7 @@ int main(int argc, char *argv[])
 
     size_t needed_swap = swap_needed_size(total_ram);
 
-    log_info("System has %zu MB of RAM; needs a swap area of %zu MB",
-        total_ram / MEGA_BYTES, needed_swap / MEGA_BYTES);
+    log_info("System has %zu MB of RAM; needs a swap area of %zu MB", total_ram / MEGA_BYTES, needed_swap / MEGA_BYTES);
 
     struct swap_file *swap = find_swap_file(needed_swap);
 
@@ -1570,7 +1552,7 @@ int main(int argc, char *argv[])
                  "System will run without a swap file while this is being set up.",
                  swap->path, swap->capacity / MEGA_BYTES, needed_swap / MEGA_BYTES);
 
-        if (swapoff(swap->path) < 0) {	
+        if (swapoff(swap->path) < 0) {
             if (errno == EINVAL) {
                 log_info("%s is not currently being used as a swap partition. That's OK.", swap->path);
             } else {
