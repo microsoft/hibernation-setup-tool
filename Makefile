@@ -17,6 +17,10 @@ clean:
 
 .PHONY: install
 install: all
+ifneq (,$(wildcard az-hibernate-agent.1))
+	install -m 0755 -d $(DESTDIR)/usr/share/man/man1/
+	install -m 0644 az-hibernate-agent.1 $(DESTDIR)/usr/share/man/man1/
+endif
 	install -m 0755 -d $(DESTDIR)/usr/sbin
 	install -m 0755 -d $(DESTDIR)/lib/systemd/system/
 	install -m 0755 az-hibernate-agent $(DESTDIR)/usr/sbin
@@ -26,3 +30,6 @@ install: all
 indent:
 	clang-format az-hibernate-agent.c > indented.c
 	mv indented.c az-hibernate-agent.c
+
+az-hibernate-agent.1: README.md
+	pandoc -f markdown -s -t man README.md -o az-hibernate-agent.1
