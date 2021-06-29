@@ -1,6 +1,6 @@
 OBJS=az-hibernate-agent.o
-CFLAGS=-Os -Wall -Wextra -std=gnu11 -fstack-protector-all -D_FORTIFY_SOURCE=1
-LDFLAGS=-Wl,-z,relro,-z,now
+CFLAGS+=-Os -Wall -Wextra -std=gnu11 -fstack-protector-all -D_FORTIFY_SOURCE=1
+LDFLAGS+=-Wl,-z,relro,-z,now
 
 %.o: %.c
 	$(CC) -c $< $(CFLAGS) -o $@
