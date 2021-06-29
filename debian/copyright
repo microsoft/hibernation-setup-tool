@@ -5,7 +5,7 @@ Source: <https://github.com/microsoft/az-hibernation-agent>
 # Please double check copyright with the licensecheck(1) command.
 
 Files:     az-hibernate-agent.c
-Copyright: Microsoft Corporation.
+Copyright: Copyright (c) 2021 Microsoft Corporation.
 License:   MIT
  MIT License
  .
