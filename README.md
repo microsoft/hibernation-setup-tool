@@ -1,5 +1,4 @@
-az-hibernate-agent
-------------------
+# az-hibernate-agent
 
 This agent sets up a VM for hibernation.
 
@@ -10,36 +9,31 @@ and isn't fragmented, and setting up parameters for the currently-running kernel
 (so that the VM can be resumed).
 
 No command-line parameters exist.  The tool is fully automatic.  It comes
-with a systemd unit file set up as a "simple" service, which can be started
+with a [systemd](https://systemd.io/) unit file set up as a "simple" service, which can be started
 on every system boot.  If the system has been properly set up, the tool will
 be completely finished almost instantaneously, not impacting boot time.
 
 It currently only fully supports distributions with GRUB2 as the bootloader (e.g.
-those with /etc/default/grub as part of its configuration file), and those using
+those with `/etc/default/grub` as part of its configuration file), and those using
 initramfs-tools (e.g. Debian and Ubuntu).  Use in systems where either of these
 aren't used is possible, however the tool won't be able to adjust the system in
 such a way that it'll resume from hibernation.
 
 Installation can be performed either manually, by using the provided Makefile
-(e.g. by issuing "make" to build and "make install" with superuser privileges
+(e.g. by issuing `make` to build and `make install` with superuser privileges
 to install files in the correct locations), or by installing a .deb package.  To
-build the .deb package, one can use the provided "build.sh" script in the
-"debian-packaging" branch of this repository, which, in a system where tools to
+build the .deb package, one can use the provided `build.sh` script in the
+`debian-packaging` branch of this repository, which, in a system where tools to
 build Debian packages have been installed, will perform all necessary steps
-to output a file that can be installed via dpkg.
+to output a file that can be installed via `dpkg`.
 
 Pull requests improving the tool are greatly appreciated.  Please refer to
-the CONTRIBUTING.md file located in this repository for more information, including
+the `CONTRIBUTING.md` file located in this repository for more information, including
 a link to the Microsoft Open Source Code of Conduct document.
-
-
 
 Trademarks This project may contain trademarks or logos for projects,
 products, or services.  Authorized use of Microsoft trademarks or logos is
-subject to and must follow Microsoft’s Trademark & Brand Guidelines[1].  Use of
+subject to and must follow [Microsoft’s Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).  Use of
 Microsoft trademarks or logos in modified versions of this project must not
 cause confusion or imply Microsoft sponsorship.  Any use of third-party
 trademarks or logos are subject to those third-party’s policies.
-
-[1] https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general
-
