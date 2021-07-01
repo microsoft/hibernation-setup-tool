@@ -1517,6 +1517,11 @@ static void ensure_systemd_hooks_are_set_up(void)
 
 int main(int argc, char *argv[])
 {
+    if (geteuid() != 0) {
+        log_fatal("This program has to be executed with superuser privileges.");
+        return 1;
+    }
+
     if (!is_hibernation_enabled_for_vm()) {
         log_info("Hibernation not enabled for this VM.");
         return 0;

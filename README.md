@@ -29,7 +29,6 @@ command from the host.  In addition, it'll install systemd hooks to
 track hibernation success, failures, and cold-boot scenarios, and store
 them in the system log.
 
-
 It currently only fully supports distributions with GRUB2 as the bootloader (e.g.
 those with `/etc/default/grub` as part of its configuration file), and those using
 initramfs-tools (e.g. Debian and Ubuntu).  Use in systems where either of these
@@ -62,6 +61,8 @@ Written by [Leandro Pereira](mailto:leandro.pereira@microsoft.com).
 [Full source code is available](https://github.com/microsoft/az-hibernate-agent/).
 
 # NOTES
+This program requires superuser privileges to execute.
+
 Pull requests improving the tool are greatly appreciated.  Please refer
 to the `CONTRIBUTING.md` file located in the source repository for more
 information, including a link to the Microsoft Open Source Code of
