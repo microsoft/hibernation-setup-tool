@@ -1055,7 +1055,7 @@ static bool update_kernel_cmdline_params_for_grub(
             free(old_contents);
         }
 
-        fprintf(resume_cfg, "# az-hibernate-agent:start\n");
+        fprintf(resume_cfg, "\n# az-hibernate-agent:start\n");
         fprintf(resume_cfg, "GRUB_CMDLINE_LINUX_DEFAULT=\"$GRUB_CMDLINE_LINUX_DEFAULT %s\"\n", args);
         fprintf(resume_cfg, "# az-hibernate-agent:end\n");
 
@@ -1179,7 +1179,7 @@ static void ensure_swap_is_enabled(const struct swap_file *swap, bool created)
         fwrite(old_contents, old_contents_len, 1, fstab);
         free(old_contents);
     }
-    fprintf(fstab, "%s\tnone\tswap\tswap\t0\t0\n", swap->path);
+    fprintf(fstab, "\n%s\tnone\tswap\tswap\t0\t0\n", swap->path);
 
     fclose(fstab);
 }
