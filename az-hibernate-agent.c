@@ -251,6 +251,11 @@ static struct swap_file *find_swap_file(size_t needed_size)
         char *filename = buffer;
         char *type = next_field(filename);
 
+        if (!type) {
+            log_info("Couldn't get the second field while parsing /proc/swaps");
+            break;
+        }
+
         if (!strcmp(type, "file")) {
             char *size = next_field(type);
 
