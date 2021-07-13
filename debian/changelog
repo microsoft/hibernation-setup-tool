@@ -1,3 +1,9 @@
+az-hibernate-agent (1.0-3) UNRELEASED; urgency=low
+
+  * Sync with upstream.
+
+ -- Leandro Pereira <leandro.pereira@microsoft.com>  Tue, 13 Jul 2021 10:04:00 -0700
+
 az-hibernate-agent (1.0-2) UNRELEASED; urgency=low
 
   * Sync with upstream.
