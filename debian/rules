@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
 override_dh_auto_build:
-	$(MAKE) az-hibernate-agent.1
+	$(MAKE) hibernation-setup-tool.1
 	dh_auto_build
 
 %:

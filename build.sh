@@ -4,23 +4,23 @@ rootdir=$(pwd)
 rm -rf build
 mkdir build
 
-pkgversion=$(grep -o -P -m 1 '^az-hibernate-agent \(\K([a-z0-9\.-]+)' debian/changelog | xargs)
+pkgversion=$(grep -o -P -m 1 '^hibernation-setup-tool \(\K([a-z0-9\.-]+)' debian/changelog | xargs)
 echo "Package version: ${pkgversion}"
 
 pushd build
 
 git clone -l ${rootdir}
-pushd az-hibernate-agent
+pushd hibernation-setup-tool
 git switch main
 rm -rf .git
 popd
 
-mv az-hibernate-agent az-hibernate-agent_${pkgversion}
+mv hibernation-setup-tool hibernation-setup-tool_${pkgversion}
 pkgnodebver=$(echo $pkgversion | cut -d'-' -f1)
-tar czvf ${rootdir}/build/az-hibernate-agent_${pkgnodebver}.orig.tar.gz az-hibernate-agent_${pkgversion}
+tar czvf ${rootdir}/build/hibernation-setup-tool_${pkgnodebver}.orig.tar.gz hibernation-setup-tool_${pkgversion}
 
-mkdir az-hibernate-agent_${pkgversion}/debian
-cp -r ${rootdir}/debian az-hibernate-agent_${pkgversion}
+mkdir hibernation-setup-tool_${pkgversion}/debian
+cp -r ${rootdir}/debian hibernation-setup-tool_${pkgversion}
 
-pushd az-hibernate-agent_${pkgversion}/
+pushd hibernation-setup-tool_${pkgversion}/
 debuild
