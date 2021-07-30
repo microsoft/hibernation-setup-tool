@@ -1,6 +1,5 @@
-// Azure Hibernation Agent
-// Sets up a swap area suitable to hibernate a virtual machine in an Azure
-// environment.
+// Hibernation Setup Tool
+// Sets up a swap area suitable to hibernate a Linux system.
 //
 // Copyright (c) 2021 Microsoft Corp.
 // Licensed under the terms of the MIT license.
@@ -70,7 +69,7 @@ static const char swap_file_name[] = "/hibfile.sys";
 
 /* Prefix is needed when not running as a service.  Output from this the tool is fed to the
  * system log while systemd is processing the request to hibernate.  This makes it easier to
- * grep for az-hibernate-agent there too in case of a failure. */
+ * grep for hibernation-setup-tool there too in case of a failure. */
 static bool log_needs_prefix = false;
 
 /* We don't always want to spam syslog: spamming stdout is fine as this is supposed to be
@@ -81,7 +80,7 @@ static bool log_needs_syslog = false;
 
 /* This is a link pointing to a file in a tmpfs filesystem and is mostly used to detect
  * if we got a cold boot or not. */
-static const char hibernate_lock_file_name[] = "/etc/az-hibernate-agent.last_hibernation";
+static const char hibernate_lock_file_name[] = "/etc/hibernation-setup-tool.last_hibernation";
 
 enum host_vm_notification {
     HOST_VM_NOTIFY_COLD_BOOT,                /* Sent every time system cold boots */
@@ -105,7 +104,7 @@ static void log_impl(int log_level, const char *fmt, va_list ap)
     flockfile(stdout);
 
     if (log_needs_prefix)
-        printf("az-hibernate-agent: ");
+        printf("hibernation-setup-tool: ");
 
     if (log_level & LOG_INFO)
         printf("INFO: ");
@@ -994,7 +993,7 @@ static bool update_kernel_cmdline_params_for_grub(
         if (!conf)
             log_fatal("Could not open initramfs-tools configuration file: %s", strerror(errno));
 
-        fprintf(conf, "# Updated automatically by az-hibernate-agent. Do not modify.\n");
+        fprintf(conf, "# Updated automatically by hibernation-setup-tool. Do not modify.\n");
         fprintf(conf, "RESUME=UUID=%s\n", dev_uuid);
         fclose(conf);
         spawn_and_wait("update-initramfs", 1, "-u");
@@ -1028,12 +1027,12 @@ static bool update_kernel_cmdline_params_for_grub(
             bool in_az_hibernate_agent_block = false;
             while (fgets(buffer, sizeof(buffer), resume_cfg)) {
                 if (in_az_hibernate_agent_block) {
-                    if (strstr(buffer, "# az-hibernate-agent:end"))
+                    if (strstr(buffer, "# hibernation-setup-tool:end"))
                         in_az_hibernate_agent_block = false;
                     continue;
                 }
 
-                if (strstr(buffer, "# az-hibernate-agent:start")) {
+                if (strstr(buffer, "# hibernation-setup-tool:start")) {
                     in_az_hibernate_agent_block = true;
                     continue;
                 }
@@ -1060,9 +1059,9 @@ static bool update_kernel_cmdline_params_for_grub(
             free(old_contents);
         }
 
-        fprintf(resume_cfg, "\n# az-hibernate-agent:start\n");
+        fprintf(resume_cfg, "\n# hibernation-setup-tool:start\n");
         fprintf(resume_cfg, "GRUB_CMDLINE_LINUX_DEFAULT=\"$GRUB_CMDLINE_LINUX_DEFAULT %s\"\n", args);
-        fprintf(resume_cfg, "# az-hibernate-agent:end\n");
+        fprintf(resume_cfg, "# hibernation-setup-tool:end\n");
 
         fclose(resume_cfg);
 
@@ -1330,10 +1329,10 @@ static int handle_pre_systemd_suspend_notification(const char *action)
         for (int try = 0;; try++) {
             if (try > 10) {
                 notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-                log_fatal("Tried too many times to create /tmp/az-hibernate-agent and failed. Giving up");
+                log_fatal("Tried too many times to create /tmp/hibernation-setup-tool and failed. Giving up");
             }
 
-            if (!mkdir("/tmp/az-hibernate-agent", 0700))
+            if (!mkdir("/tmp/hibernation-setup-tool", 0700))
                 break;
             if (errno != EEXIST) {
                 notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
@@ -1341,46 +1340,46 @@ static int handle_pre_systemd_suspend_notification(const char *action)
             }
 
             struct stat st;
-            if (!stat("/tmp/az-hibernate-agent", &st)) {
+            if (!stat("/tmp/hibernation-setup-tool", &st)) {
                 if (S_ISDIR(st.st_mode)) {
-                    log_info("/tmp/az-hibernate-agent exists, removing it");
+                    log_info("/tmp/hibernation-setup-tool exists, removing it");
 
-                    if (umount2("/tmp/az-hibernate-agent", UMOUNT_NOFOLLOW | MNT_DETACH) < 0) {
+                    if (umount2("/tmp/hibernation-setup-tool", UMOUNT_NOFOLLOW | MNT_DETACH) < 0) {
                         /* See comment related to the umount2() call in handle_post_systemd_suspend_notification(). */
                         if (errno != EINVAL)
-                            log_fatal("Error while unmounting /tmp/az-hibernate-agent: %s", strerror(errno));
+                            log_fatal("Error while unmounting /tmp/hibernation-setup-tool: %s", strerror(errno));
                     }
 
-                    if (recursive_rmdir("/tmp/az-hibernate-agent"))
+                    if (recursive_rmdir("/tmp/hibernation-setup-tool"))
                         continue;
 
                     notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-                    log_fatal("Couldn't remove /tmp/az-hibernate-agent directory before proceeding");
+                    log_fatal("Couldn't remove /tmp/hibernation-setup-tool directory before proceeding");
                 }
 
-                log_info("/tmp/az-hibernate-agent exists and isn't a directory! Removing it and trying again (try %d)", try);
+                log_info("/tmp/hibernation-setup-tool exists and isn't a directory! Removing it and trying again (try %d)", try);
 
-                if (!unlink("/tmp/az-hibernate-agent"))
+                if (!unlink("/tmp/hibernation-setup-tool"))
                     continue;
 
                 notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
                 log_fatal("Couldn't remove the file: %s, giving up", strerror(errno));
             }
 
-            log_info("/tmp/az-hibernate-agent couldn't be found but mkdir() told us it exists, trying again (try %d)", try);
+            log_info("/tmp/hibernation-setup-tool couldn't be found but mkdir() told us it exists, trying again (try %d)", try);
             continue;
         }
 
-        if (!is_file_on_fs("/tmp/az-hibernate-agent", TMPFS_MAGIC)) {
-            log_info("/tmp isn't a tmpfs filesystem; trying to mount /tmp/az-hibernate-agent as such");
+        if (!is_file_on_fs("/tmp/hibernation-setup-tool", TMPFS_MAGIC)) {
+            log_info("/tmp isn't a tmpfs filesystem; trying to mount /tmp/hibernation-setup-tool as such");
 
-            if (mount("tmpfs", "/tmp/az-hibernate-agent", "tmpfs", 0, NULL) < 0) {
+            if (mount("tmpfs", "/tmp/hibernation-setup-tool", "tmpfs", 0, NULL) < 0) {
                 notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
                 log_fatal("Couldn't mount temporary filesystem: %s. We need this to detect cold boots!", strerror(errno));
             }
         }
 
-        char pattern[] = "/tmp/az-hibernate-agent/hibernatedXXXXXX";
+        char pattern[] = "/tmp/hibernation-setup-tool/hibernatedXXXXXX";
         int fd = mkostemp(pattern, O_CLOEXEC);
         if (fd < 0) {
             notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
@@ -1423,17 +1422,17 @@ static int handle_post_systemd_suspend_notification(const char *action)
         if (unlink(hibernate_lock_file_name) < 0)
             log_info("This is fine, but couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
 
-        if (umount2("/tmp/az-hibernate-agent", UMOUNT_NOFOLLOW | MNT_DETACH) < 0) {
+        if (umount2("/tmp/hibernation-setup-tool", UMOUNT_NOFOLLOW | MNT_DETACH) < 0) {
             /* EINVAL is returned if this isn't a mount point. This is normal if /tmp was already
              * a tmpfs and we didn't create and mounted this directory in the pre-hibernate hook.
              * Calling umount2() is cheaper than checking if this directory is indeed mounted as
              * a tmpfs directory. */
             if (errno != EINVAL)
-                log_info("While unmounting /tmp/az-hibernate-agent: %s", strerror(errno));
+                log_info("While unmounting /tmp/hibernation-setup-tool: %s", strerror(errno));
         }
 
-        if (!recursive_rmdir("/tmp/az-hibernate-agent"))
-            log_info("While removing /tmp/az-hibernate-agent: %s", strerror(errno));
+        if (!recursive_rmdir("/tmp/hibernation-setup-tool"))
+            log_info("While removing /tmp/hibernation-setup-tool: %s", strerror(errno));
 
         notify_vm_host(HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION);
         log_info("Post-hibernation hooks executed successfully");

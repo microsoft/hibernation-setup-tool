@@ -1,9 +1,9 @@
 [Unit]
-Description=Azure Hibernation Agent
+Description=Hibernation Setup Tool
 
 [Service]
 Type=simple
-ExecStart=/usr/sbin/az-hibernate-agent
+ExecStart=/usr/sbin/hibernation-setup-tool
 RemainAfterExit=false
 StandardOutput=journal
 

@@ -1,20 +1,20 @@
 ---
-title: az-hibernate-agent
+title: hibernation-setup-tool
 section: 1
-header: Azure VM Agents
-footer: az-hibernate-agent 1.0
+header: System Utilities
+footer: hibernation-setup-tool 1.0
 date: June 29, 2021
 ---
 
 
 # NAME
-az-hibernate-agent - sets up a VM for hibernation
+hibernation-setup-tool - sets up a VM for hibernation
 
 # SYNOPSIS
-**az-hibernate-agent**
+**hibernation-setup-tool**
 
 # DESCRIPTION
-**az-hibernate-agent** is a tool that sets up a swap file suitable for
+**hibernation-setup-tool** is a tool that sets up a swap file suitable for
 hibernation, and sets up the system to enable proper resuming.
 
 It accomplishes that by creating a swap file in the root directory that's slightly
@@ -55,10 +55,10 @@ The tool will return 0 on success, and 1 on failure.
 Written by [Leandro Pereira](mailto:leandro.pereira@microsoft.com).
 
 # BUGS
-[Submit bug reports online](https://github.com/microsoft/az-hibernate-agent/issues).
+[Submit bug reports online](https://github.com/microsoft/hibernation-setup-tool/issues).
 
 # SEE ALSO
-[Full source code is available](https://github.com/microsoft/az-hibernate-agent/).
+[Full source code is available](https://github.com/microsoft/hibernation-setup-tool/).
 
 # NOTES
 This program requires superuser privileges to execute.
