@@ -1470,10 +1470,18 @@ static int handle_systemd_suspend_notification(const char *argv0, const char *wh
 
 static void link_hook(const char *src, const char *dest)
 {
-    if (unlink(dest) < 0) {
-        if (errno != ENOENT)
-            log_info("Couldn't remove %s: %s", dest, strerror(errno));
-    }
+    const char *base = strrchr(src, '/');
+    char full_path[PATH_MAX];
+    int r;
+
+    if (!base)
+        return log_fatal("Couldn't determine base name for '%s'", src);
+    base++; /* Skip / */
+
+    r = snprintf(full_path, PATH_MAX, "%s/%s", dest, base);
+    if (r < 0 || r > PATH_MAX)
+        return log_fatal("Building path for symbolic link failed");
+    unlink(full_path);
 
     if (link(src, dest) < 0)
         return log_fatal("Couldn't link %s to %s: %s", src, dest, strerror(errno));
@@ -1492,7 +1500,7 @@ static void ensure_systemd_hooks_are_set_up(void)
      * More info: https://www.freedesktop.org/software/systemd/man/systemd-suspend.service.html
      */
     const char *execfn = (const char *)getauxval(AT_EXECFN);
-    const char *location_to_link = "/usr/lib/systemd/systemd-sleep/99-hibernation-setup-tool";
+    const char *location_to_link = "/usr/lib/systemd/systemd-sleep";
     struct stat st;
     int r;
 
