@@ -1472,21 +1472,10 @@ static int handle_systemd_suspend_notification(const char *argv0, const char *wh
 
 static void link_hook(const char *src, const char *dest)
 {
-    const char *base = strrchr(src, '/');
-    char full_path[PATH_MAX];
-    int r;
-
-    if (!base)
-        return log_fatal("Couldn't determine base name for '%s'", src);
-    base++; /* Skip / */
-
-    r = snprintf(full_path, PATH_MAX, "%s/%s", dest, base);
-    if (r < 0 || r > PATH_MAX)
-        return log_fatal("Building path for symbolic link failed");
-    unlink(full_path);
-
-    if (link(src, dest) < 0)
-        return log_fatal("Couldn't link %s to %s: %s", src, dest, strerror(errno));
+    if (link(src, dest) < 0) {
+        if (errno != EEXIST)
+            return log_fatal("Couldn't link %s to %s: %s", src, dest, strerror(errno));
+    }
 
     log_info("Notifying systemd of new hooks");
     spawn_and_wait("systemctl", 1, "daemon-reload");
