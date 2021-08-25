@@ -1387,6 +1387,10 @@ static int handle_pre_systemd_suspend_notification(const char *action)
         }
         close(fd);
 
+        if (unlink(hibernate_lock_file_name) < 0) {
+            notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+            log_fatal("Couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
+        }
         if (link(pattern, hibernate_lock_file_name) < 0) {
             notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
             log_fatal("Couldn't link %s to %s: %s", pattern, hibernate_lock_file_name, strerror(errno));
@@ -1466,6 +1470,11 @@ static int handle_systemd_suspend_notification(const char *argv0, const char *wh
 
 static void link_hook(const char *src, const char *dest)
 {
+    if (unlink(dest) < 0) {
+        if (errno != ENOENT)
+            log_info("Couldn't remove %s: %s", dest, strerror(errno));
+    }
+
     if (link(src, dest) < 0)
         return log_fatal("Couldn't link %s to %s: %s", src, dest, strerror(errno));
 
@@ -1483,7 +1492,7 @@ static void ensure_systemd_hooks_are_set_up(void)
      * More info: https://www.freedesktop.org/software/systemd/man/systemd-suspend.service.html
      */
     const char *execfn = (const char *)getauxval(AT_EXECFN);
-    const char *location_to_link = "/usr/lib/systemd/systemd-sleep";
+    const char *location_to_link = "/usr/lib/systemd/systemd-sleep/99-hibernation-setup-tool";
     struct stat st;
     int r;
 
