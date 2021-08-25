@@ -1,3 +1,9 @@
+hibernation-setup-tool (1.0-6) UNRELEASED; urgency=low
+
+  * Sync with upstream.
+
+ -- Leandro Pereira <leandro.pereira@microsoft.com>  Wed, 25 Aug 2021 14:40:00 -0700
+
 hibernation-setup-tool (1.0-5) UNRELEASED; urgency=low
 
   * Sync with upstream.
