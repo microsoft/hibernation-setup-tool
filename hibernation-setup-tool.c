@@ -1388,8 +1388,10 @@ static int handle_pre_systemd_suspend_notification(const char *action)
         close(fd);
 
         if (unlink(hibernate_lock_file_name) < 0) {
-            notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-            log_fatal("Couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
+            if (errno != EEXIST) {
+                notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+                log_fatal("Couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
+            }
         }
         if (link(pattern, hibernate_lock_file_name) < 0) {
             notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
