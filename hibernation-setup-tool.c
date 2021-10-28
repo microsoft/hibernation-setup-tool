@@ -1061,6 +1061,7 @@ static bool update_kernel_cmdline_params_for_grub(
 
         fprintf(resume_cfg, "\n# hibernation-setup-tool:start\n");
         fprintf(resume_cfg, "GRUB_CMDLINE_LINUX_DEFAULT=\"$GRUB_CMDLINE_LINUX_DEFAULT %s\"\n", args);
+        fprintf(resume_cfg, "unset GRUB_FORCE_PARTUUID\n");
         fprintf(resume_cfg, "# hibernation-setup-tool:end\n");
 
         fclose(resume_cfg);
