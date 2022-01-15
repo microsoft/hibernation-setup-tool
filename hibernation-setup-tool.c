@@ -106,10 +106,14 @@ static void log_impl(int log_level, const char *fmt, va_list ap)
     if (log_needs_prefix)
         printf("hibernation-setup-tool: ");
 
-    if (log_level & LOG_INFO)
+    if (log_level == LOG_INFO)
+    {
         printf("INFO: ");
-    else if (log_level & LOG_ERR)
+    }
+    else if (log_level == LOG_ERR)
+    {
         printf("ERROR: ");
+    }
     vprintf(fmt, ap);
     printf("\n");
 
@@ -824,6 +828,28 @@ static void perform_fs_specific_checks(const char *path)
     }
 }
 
+bool check_if_system_version_is_higher(const char *version) {
+    struct utsname my_uname;
+    if(uname(&my_uname) == -1)
+    {
+        log_info("uname call failed. Proceeding with fallocate.");
+        return true;
+    }
+    unsigned sys_major_version = 0, sys_minor_version = 0;
+    unsigned req_major_version = 0, req_minor_version = 0;
+    sscanf(my_uname.release, "%u.%u", &sys_major_version, &sys_minor_version);
+    sscanf(version, "%u.%u", &req_major_version, &req_minor_version);
+    if (sys_major_version > req_major_version)
+        return true;
+    if (sys_major_version < req_major_version)
+        return false;
+    if (sys_minor_version > req_minor_version)
+        return true;
+    if (sys_minor_version < req_minor_version)
+        return false;
+    return true;
+}
+
 static struct swap_file *create_swap_file(size_t needed_size)
 {
     log_info("Creating hibernation file at %s with %zu MB.", swap_file_name, needed_size / MEGA_BYTES);
@@ -836,10 +862,10 @@ static struct swap_file *create_swap_file(size_t needed_size)
 
     log_info("Ensuring %s has no holes in it.", swap_file_name);
 
-    bool swap_on_xfs = is_file_on_fs(swap_file_name, XFS_SUPER_MAGIC);
+    bool swap_on_xfs = is_file_on_fs(swap_file_name, XFS_SUPER_MAGIC) && !check_if_system_version_is_higher("4.18");
     if (swap_on_xfs || !try_zeroing_out_with_fallocate(swap_file_name, needed_size)) {
         if (swap_on_xfs)
-            log_info("Root partition is in a XFS filesystem; need to use slower method to allocate swap file");
+            log_info("Root partition is in a XFS filesystem and system version is less than 4.18. Need to use slower method to allocate swap file");
         else
             log_info("Fast method failed; trying a slower method.");
 
@@ -997,6 +1023,17 @@ static bool update_kernel_cmdline_params_for_grub(
         fprintf(conf, "RESUME=UUID=%s\n", dev_uuid);
         fclose(conf);
         spawn_and_wait("update-initramfs", 1, "-u");
+    } else if (is_exec_in_path("dracut")) {
+        log_info("Updating initramfs(dracut) to include resume stuff");
+
+        FILE *conf = fopen("/etc/dracut.conf.d/resume.conf", "we");
+        if (!conf)
+            log_fatal("Could not open initramfs-tools configuration file: %s", strerror(errno));
+
+        fprintf(conf, "# Updated automatically by hibernation-setup-tool. Do not modify.\n");
+        fprintf(conf, "add_dracutmodules+=\" resume \"");
+        fclose(conf);
+        spawn_and_wait("dracut", 1, "-f");
     }
 
     if (has_grubby) {
