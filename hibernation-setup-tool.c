@@ -107,13 +107,9 @@ static void log_impl(int log_level, const char *fmt, va_list ap)
         printf("hibernation-setup-tool: ");
 
     if (log_level == LOG_INFO)
-    {
         printf("INFO: ");
-    }
     else if (log_level == LOG_ERR)
-    {
         printf("ERROR: ");
-    }
     vprintf(fmt, ap);
     printf("\n");
 
@@ -862,6 +858,7 @@ static struct swap_file *create_swap_file(size_t needed_size)
 
     log_info("Ensuring %s has no holes in it.", swap_file_name);
 
+    /* Preallocated swap files are supported on xfs since Linux 4.18. So using fallocate for XFS if system version is higher than 4.18 */
     bool swap_on_xfs = is_file_on_fs(swap_file_name, XFS_SUPER_MAGIC) && !check_if_system_version_is_higher("4.18");
     if (swap_on_xfs || !try_zeroing_out_with_fallocate(swap_file_name, needed_size)) {
         if (swap_on_xfs)
@@ -1012,6 +1009,8 @@ static bool update_kernel_cmdline_params_for_grub(
         return false;
     }
 
+    /* Updating initramfs to include resume config changes in boot process, varies by distro. update-initramfs command works
+     * for Ubuntu, Debian whereas dracut is a tool to build initramfs archives on RHEL, CentOS */
     if (is_exec_in_path("update-initramfs")) {
         log_info("Updating initramfs to include resume stuff");
 
