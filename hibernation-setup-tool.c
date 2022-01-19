@@ -824,10 +824,10 @@ static void perform_fs_specific_checks(const char *path)
     }
 }
 
-bool check_if_system_version_is_higher(const char *version) {
+bool is_kernel_version_at_least(const char *version)
+{
     struct utsname my_uname;
-    if(uname(&my_uname) == -1)
-    {
+    if (uname(&my_uname) == -1) {
         log_info("uname call failed. Proceeding with fallocate.");
         return true;
     }
@@ -835,15 +835,9 @@ bool check_if_system_version_is_higher(const char *version) {
     unsigned req_major_version = 0, req_minor_version = 0;
     sscanf(my_uname.release, "%u.%u", &sys_major_version, &sys_minor_version);
     sscanf(version, "%u.%u", &req_major_version, &req_minor_version);
-    if (sys_major_version > req_major_version)
-        return true;
-    if (sys_major_version < req_major_version)
-        return false;
-    if (sys_minor_version > req_minor_version)
-        return true;
-    if (sys_minor_version < req_minor_version)
-        return false;
-    return true;
+    uint64_t sys_version = sys_major_version * 10000 + sys_minor_version;
+    uint64_t req_version = req_major_version * 10000 + req_minor_version;
+    return sys_version >= req_version;
 }
 
 static struct swap_file *create_swap_file(size_t needed_size)
@@ -859,10 +853,10 @@ static struct swap_file *create_swap_file(size_t needed_size)
     log_info("Ensuring %s has no holes in it.", swap_file_name);
 
     /* Preallocated swap files are supported on xfs since Linux 4.18. So using fallocate for XFS if system version is higher than 4.18 */
-    bool swap_on_xfs = is_file_on_fs(swap_file_name, XFS_SUPER_MAGIC) && !check_if_system_version_is_higher("4.18");
+    bool swap_on_xfs = is_file_on_fs(swap_file_name, XFS_SUPER_MAGIC) && !is_kernel_version_at_least("4.18");
     if (swap_on_xfs || !try_zeroing_out_with_fallocate(swap_file_name, needed_size)) {
         if (swap_on_xfs)
-            log_info("Root partition is in a XFS filesystem and system version is less than 4.18. Need to use slower method to allocate swap file");
+            log_info("Root partition is in a XFS filesystem and kernel version is older than 4.18. Need to use slower method to allocate swap file");
         else
             log_info("Fast method failed; trying a slower method.");
 
