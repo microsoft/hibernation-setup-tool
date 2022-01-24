@@ -1530,6 +1530,7 @@ static void ensure_systemd_hooks_are_set_up(void)
 
 int main(int argc, char *argv[])
 {
+    log_info("START: Hibernation Setup tool.");
     if (geteuid() != 0) {
         log_fatal("This program has to be executed with superuser privileges.");
         return 1;
