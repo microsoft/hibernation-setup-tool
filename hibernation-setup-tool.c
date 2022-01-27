@@ -828,7 +828,7 @@ bool is_kernel_version_at_least(const char *version)
 {
     struct utsname my_uname;
     if (uname(&my_uname) == -1) {
-        log_info("uname call failed. Proceeding with fallocate.");
+        log_info("uname call failed.");
         return true;
     }
     unsigned sys_major_version = 0, sys_minor_version = 0;
@@ -1566,8 +1566,8 @@ int main(int argc, char *argv[])
     }
 
     if (!is_hibernation_enabled_for_vm()) {
-        log_info("Hibernation not enabled for this VM.");
-        return 0;
+        log_fatal("Hibernation not enabled for this VM.");
+        return 1;
     }
 
     if (is_hyperv()) {
