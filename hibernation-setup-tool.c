@@ -569,7 +569,7 @@ static bool is_hibernation_allowed_for_vm(void)
     /* first where are we going to send it? */
     int portno = 80;
     char *host = "169.254.169.254";
-    char *request = "GET /metadata/instance/compute/additionalCapabilities?api-version=2021-11-01 HTTP/1.1\r\nMetadata:true\r\n";
+    char *request = "GET /metadata/instance/compute/additionalCapabilities?api-version=2021-11-01 HTTP/1.1\r\nAccept: */*\r\nMetadata:true\r\n";
 
     struct hostent *server;
     struct sockaddr_in serv_addr;
@@ -584,6 +584,17 @@ static bool is_hibernation_allowed_for_vm(void)
     if (sockfd < 0) 
     {
         perror("ERROR opening socket");
+        return false;
+    }
+
+    struct timeval timeout;      
+    timeout.tv_sec = 10;
+    timeout.tv_usec = 0;
+    
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0 || 
+        setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0)
+    {
+        perror("ERROR, unable to set timeouts for socket");
         return false;
     }
 
@@ -614,7 +625,10 @@ static bool is_hibernation_allowed_for_vm(void)
     do {
         bytes = write(sockfd,request+sent,total-sent);
         if (bytes < 0)
+        {
             perror("ERROR writing message to socket");
+            return false;
+        }
         if (bytes == 0)
             break;
         sent+=bytes;
@@ -627,7 +641,10 @@ static bool is_hibernation_allowed_for_vm(void)
     do {
         bytes = read(sockfd,response+received,total-received);
         if (bytes < 0)
+        {
             perror("ERROR reading response from socket");
+            return false;
+        }
         if (bytes == 0)
             break;
         received+=bytes;
