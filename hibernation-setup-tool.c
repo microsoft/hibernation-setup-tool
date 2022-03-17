@@ -22,6 +22,8 @@
 #include <linux/magic.h>
 #include <linux/suspend_ioctls.h>
 #include <mntent.h>
+#include <netdb.h> /* struct hostent, gethostbyname */
+#include <netinet/in.h> /* struct sockaddr_in, struct sockaddr */
 #include <spawn.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -40,6 +42,7 @@
 #include <sys/wait.h>
 #include <syscall.h>
 #include <syslog.h>
+#include <sys/socket.h> /* socket, connect */
 #include <unistd.h>
 
 #define MEGA_BYTES (1ul << 20)
@@ -130,6 +133,7 @@ __attribute__((format(printf, 1, 2))) __attribute__((noreturn)) static void log_
     va_list ap;
 
     va_start(ap, fmt);
+    strerror(errno);
     log_impl(LOG_ERR, fmt, ap);
     va_end(ap);
 
@@ -557,6 +561,91 @@ static bool is_hibernation_enabled_for_vm(void)
     }
 
     log_info("Even though VM is capable of hibernation, it seems to be disabled.");
+    return false;
+}
+
+static bool is_hibernation_allowed_for_vm(void)
+{   
+    /* first where are we going to send it? */
+    int portno = 80;
+    char *host = "169.254.169.254";
+    char *request = "GET /metadata/instance/compute/additionalCapabilities?api-version=2021-11-01 HTTP/1.1\r\nMetadata:true\r\n";
+
+    struct hostent *server;
+    struct sockaddr_in serv_addr;
+    int sockfd, bytes, sent, received, total;
+    char response[4096];
+    
+    /* What are we going to send? */
+    log_info("Request:\n%s\n",request);
+
+    /* create the socket */
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) 
+    {
+        perror("ERROR opening socket");
+        return false;
+    }
+
+    /* lookup the ip address */
+    server = gethostbyname(host);
+    if (server == NULL) 
+    {
+        perror("ERROR, no such host");
+        return false;
+    }
+
+    /* fill in the structure */
+    memset(&serv_addr,0,sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(portno);
+    memcpy(&serv_addr.sin_addr.s_addr,server->h_addr,server->h_length);
+
+    /* connect the socket */
+    if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
+    {
+        perror("ERROR connecting");
+        return false;
+    }
+
+    /* send the request */
+    total = strlen(request);
+    sent = 0;
+    do {
+        bytes = write(sockfd,request+sent,total-sent);
+        if (bytes < 0)
+            perror("ERROR writing message to socket");
+        if (bytes == 0)
+            break;
+        sent+=bytes;
+    } while (sent < total);
+
+    /* receive the response */
+    memset(response,0,sizeof(response));
+    total = sizeof(response)-1;
+    received = 0;
+    do {
+        bytes = read(sockfd,response+received,total-received);
+        if (bytes < 0)
+            perror("ERROR reading response from socket");
+        if (bytes == 0)
+            break;
+        received+=bytes;
+    } while (received < total);
+
+    /*
+     * if the number of received bytes is the total size of the
+     * array then we have run out of space to store the response
+     * and it hasn't all arrived yet - so that's a bad thing
+     */
+    if (received == total)
+        perror("ERROR storing complete response from socket");
+
+    /* close the socket */
+    close(sockfd);
+
+    /* process response */
+    log_info("Response:\n%s\n",response);
     return false;
 }
 
@@ -1560,6 +1649,11 @@ static void ensure_systemd_hooks_are_set_up(void)
 
 int main(int argc, char *argv[])
 {
+    if (!is_hibernation_allowed_for_vm()) {
+        log_fatal("Hibernation not allowed for this VM. Please enable Hibernation during VM creation");
+        return 1;
+    }
+
     if (geteuid() != 0) {
         log_fatal("This program has to be executed with superuser privileges.");
         return 1;
