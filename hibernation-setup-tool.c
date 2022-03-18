@@ -620,33 +620,42 @@ static bool is_hibernation_allowed_for_vm(void)
     }
 
     /* send the request */
-    write(sockfd, &REQUEST, strlen(REQUEST)); // write(fd, char[]*, len);  
+    bytes = write(sockfd, &REQUEST, strlen(REQUEST)); // write(fd, char[]*, len);  
+    if (bytes < 0)
+        perror("Failed to write to socket");
 
-    /* receive the response */
-    memset(response,0,sizeof(response));
-    total = sizeof(response)-1;
-    received = 0;
-    do {
-        bytes = read(sockfd,response+received,total-received);
-        if (bytes < 0)
-        {
-            perror("ERROR reading response from socket");
-            return false;
-        }
-        if (bytes == 0)
-            break;
-        received+=bytes;
-    } while (received < total);
+
+    while(read(sockfd, response, sizeof(response) - 1) != 0){
+		fprintf(stderr, "%s", response);
+		bzero(response, sizeof(response));
+	}
+
+    // /* receive the response */
+    // memset(response,0,sizeof(response));
+    // total = sizeof(response)-1;
+    // received = 0;
+    // do {
+    //     bytes = read(sockfd,response+received,total-received);
+    //     if (bytes < 0)
+    //     {
+    //         perror("ERROR reading response from socket");
+    //         return false;
+    //     }
+    //     if (bytes == 0)
+    //         break;
+    //     received+=bytes;
+    // } while (received < total);
 
     /*
      * if the number of received bytes is the total size of the
      * array then we have run out of space to store the response
      * and it hasn't all arrived yet - so that's a bad thing
      */
-    if (received == total)
-        perror("ERROR storing complete response from socket");
+    // if (received == total)
+    //     perror("ERROR storing complete response from socket");
 
     /* close the socket */
+    shutdown(sockfd, SHUT_RDWR);
     close(sockfd);
 
     /* process response */
