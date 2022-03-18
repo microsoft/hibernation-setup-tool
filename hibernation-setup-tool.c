@@ -567,9 +567,13 @@ static bool is_hibernation_enabled_for_vm(void)
 static bool is_hibernation_allowed_for_vm(void)
 {   
     /* first where are we going to send it? */
+    char *imds_host = "169.254.169.254";
+    char req[] = "GET /metadata/instance/compute/additionalCapabilities?api-version=2021-11-01 HTTP/1.1\r\nHost: %s\r\nMetadata:true\r\n\r\n";
+    
+    int request_length = strlen(req) + strlen(imds_host);
+    char request[request_length];
+    sprintf(request, req, imds_host);
     int portno = 80;
-    char *host = "169.254.169.254";
-    char *request = "GET /metadata/instance/compute/additionalCapabilities?api-version=2021-11-01 HTTP/1.1\r\nHost: 169.254.169.254\r\nMetadata:true\r\n\r\n";
 
     struct hostent *server;
     struct sockaddr_in serv_addr;
@@ -577,7 +581,7 @@ static bool is_hibernation_allowed_for_vm(void)
     char response[4096];
     
     /* What are we going to send? */
-    log_info("Request:%s\n",request);
+    log_info("Request:\n%s\n",request);
 
     /* create the socket */
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -599,7 +603,7 @@ static bool is_hibernation_allowed_for_vm(void)
     }
 
     /* lookup the ip address */
-    server = gethostbyname(host);
+    server = gethostbyname(imds_host);
     if (server == NULL) 
     {
         perror("ERROR, no such host");
@@ -623,7 +627,7 @@ static bool is_hibernation_allowed_for_vm(void)
     total = strlen(request);
     sent = 0;
     do {
-        bytes = write(sockfd,request+sent,total-sent);
+        bytes = write(sockfd,&request+sent,total-sent);
         if (bytes < 0)
         {
             perror("ERROR writing message to socket");
