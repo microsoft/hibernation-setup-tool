@@ -564,15 +564,11 @@ static bool is_hibernation_enabled_for_vm(void)
     return false;
 }
 
+#define IMDSHOST "169.254.169.254"
+#define REQUEST "GET /metadata/instance/compute/additionalCapabilities?api-version=2021-11-01 HTTP/1.1\r\nHost: " IMDSHOST "\r\nMetadata:true\r\n\r\n"
+
 static bool is_hibernation_allowed_for_vm(void)
 {   
-    /* first where are we going to send it? */
-    char *imds_host = "169.254.169.254";
-    char req[] = "GET /metadata/instance/compute/additionalCapabilities?api-version=2021-11-01 HTTP/1.1\r\nHost: %s\r\nMetadata:true\r\n\r\n";
-    
-    int request_length = strlen(req) + strlen(imds_host);
-    char request[request_length];
-    sprintf(request, req, imds_host);
     int portno = 80;
 
     struct hostent *server;
@@ -581,7 +577,7 @@ static bool is_hibernation_allowed_for_vm(void)
     char response[4096];
     
     /* What are we going to send? */
-    log_info("Request:\n%s\n",request);
+    log_info("Request:\n%s\n",REQUEST);
 
     /* create the socket */
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -603,7 +599,7 @@ static bool is_hibernation_allowed_for_vm(void)
     }
 
     /* lookup the ip address */
-    server = gethostbyname(imds_host);
+    server = gethostbyname(IMDSHOST);
     if (server == NULL) 
     {
         perror("ERROR, no such host");
@@ -624,19 +620,7 @@ static bool is_hibernation_allowed_for_vm(void)
     }
 
     /* send the request */
-    total = strlen(request);
-    sent = 0;
-    do {
-        bytes = write(sockfd,&request+sent,total-sent);
-        if (bytes < 0)
-        {
-            perror("ERROR writing message to socket");
-            return false;
-        }
-        if (bytes == 0)
-            break;
-        sent+=bytes;
-    } while (sent < total);
+    write(sockfd, &REQUEST, strlen(REQUEST)); // write(fd, char[]*, len);  
 
     /* receive the response */
     memset(response,0,sizeof(response));
