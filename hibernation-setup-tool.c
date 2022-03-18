@@ -624,11 +624,9 @@ static bool is_hibernation_allowed_for_vm(void)
     if (bytes < 0)
         perror("Failed to write to socket");
 
-
-    while(read(sockfd, response, sizeof(response) - 1) != 0){
-		fprintf(stderr, "%s", response);
-		bzero(response, sizeof(response));
-	}
+    bytes = read(sockfd, response, sizeof(response) - 1);
+    if (bytes < 0)
+        perror("Failed to read from socket");
 
     // /* receive the response */
     // memset(response,0,sizeof(response));
