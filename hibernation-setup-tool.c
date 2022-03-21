@@ -133,7 +133,6 @@ __attribute__((format(printf, 1, 2))) __attribute__((noreturn)) static void log_
     va_list ap;
 
     va_start(ap, fmt);
-    strerror(errno);
     log_impl(LOG_ERR, fmt, ap);
     va_end(ap);
 
@@ -583,7 +582,7 @@ static bool is_hibernation_allowed_for_vm(void)
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) 
     {
-        perror("ERROR opening socket");
+        log_info("Error opening socket for calling IMDS: %s", strerror(errno));
         return false;
     }
 
@@ -594,7 +593,7 @@ static bool is_hibernation_allowed_for_vm(void)
     if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0 || 
         setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0)
     {
-        perror("ERROR, unable to set timeouts for socket");
+        log_info("Unable to set timeouts for socket: %s", strerror(errno));
         return false;
     }
 
@@ -602,7 +601,7 @@ static bool is_hibernation_allowed_for_vm(void)
     server = gethostbyname(IMDSHOST);
     if (server == NULL) 
     {
-        perror("ERROR, no such host");
+        log_info("Unable to fetch IMDS host info: %s", strerror(errno));
         return false;
     }
 
@@ -615,25 +614,34 @@ static bool is_hibernation_allowed_for_vm(void)
     /* connect the socket */
     if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
     {
-        perror("ERROR connecting");
+        log_info("Unable to connect to IMDS: %s", strerror(errno));
         return false;
     }
 
     /* send the request */
     bytes = write(sockfd, &REQUEST, strlen(REQUEST)); 
     if (bytes < 0)
-        perror("Failed to write to socket");
-
+    {
+        log_info("Failed to write to socket: %s", strerror(errno));
+        return false;
+    }
     // Get the response
     bytes = read(sockfd, response, sizeof(response) - 1);
     if (bytes < 0)
-        perror("Failed to read from socket");
+    {
+        log_info("Failed to read from socket: %s", strerror(errno));
+        return false;
+    }
 
     /* close the socket */
     close(sockfd);
 
     /* process response */
     log_info("IMDS Response:\n%s\n",response);
+    if(strstr(response, "true")){
+        log_info("Hibernation is allowed for this machine");
+        return true;
+    }
     return false;
 }
 
