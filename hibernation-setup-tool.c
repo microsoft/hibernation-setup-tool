@@ -566,24 +566,18 @@ static bool is_hibernation_enabled_for_vm(void)
 #define IMDSHOST "169.254.169.254"
 #define REQUEST "GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1\r\nHost: " IMDSHOST "\r\nMetadata:true\r\n\r\n"
 
-static bool is_hibernation_allowed_for_vm(void)
-{   
-    int portno = 80;
-
+static int get_socket(char *host, int portno)
+{
     struct hostent *server;
     struct sockaddr_in serv_addr;
-    int sockfd, bytes;
-    char response[4096];
-    
-    /* What are we going to send? */
-    log_info("Request:\n%s\n",REQUEST);
+    int sockfd;
 
     /* create the socket */
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) 
     {
-        log_info("Error opening socket for calling IMDS: %s", strerror(errno));
-        return false;
+        log_info("Error opening socket: %s", strerror(errno));
+        return -1;
     }
 
     struct timeval timeout;      
@@ -594,15 +588,15 @@ static bool is_hibernation_allowed_for_vm(void)
         setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0)
     {
         log_info("Unable to set timeouts for socket: %s", strerror(errno));
-        return false;
+        return -1;
     }
 
     /* lookup the ip address */
-    server = gethostbyname(IMDSHOST);
+    server = gethostbyname(host);
     if (server == NULL) 
     {
-        log_info("Unable to fetch IMDS host info: %s", strerror(errno));
-        return false;
+        log_info("Unable to fetch host info %s: %s", host, strerror(errno));
+        return -1;
     }
 
     /* fill in the structure */
@@ -614,31 +608,48 @@ static bool is_hibernation_allowed_for_vm(void)
     /* connect the socket */
     if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
     {
-        log_info("Unable to connect to IMDS: %s", strerror(errno));
-        return false;
+        log_info("Unable to connect to host %s: %s", host, strerror(errno));
+        return -1;
     }
 
-    /* send the request */
-    bytes = write(sockfd, &REQUEST, strlen(REQUEST)); 
-    if (bytes < 0)
+    return sockfd;
+}
+
+static bool is_hibernation_allowed_for_vm(void)
+{   
+    int portno = 80;
+    char response[4096];
+    int sockfd, bytes;
+    
+    sockfd = get_socket(IMDSHOST, portno);
+    if(sockfd < 0)
+        return false;
+        
+    /* What are we going to send? */
+    log_info("IMDS Request:\n%s\n",REQUEST);
+
+    /* send the request */ 
+    if (write(sockfd, &REQUEST, strlen(REQUEST)) < 0)
     {
         log_info("Failed to write to socket: %s", strerror(errno));
         return false;
     }
+
     // Get the response
-    bytes = read(sockfd, response, sizeof(response) - 1);
-    if (bytes < 0)
+    if (read(sockfd, response, sizeof(response) - 1) < 0)
     {
         log_info("Failed to read from socket: %s", strerror(errno));
         return false;
     }
 
     /* close the socket */
+    shutdown(sockfd, SHUT_RDWR);
     close(sockfd);
 
     /* process response */
     log_info("IMDS Response:\n%s\n",response);
-    if(strstr(response, "true")){
+    if(strstr(response, "true"))
+    {
         log_info("Hibernation is allowed for this machine");
         return true;
     }
