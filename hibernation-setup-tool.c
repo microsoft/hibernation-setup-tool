@@ -563,10 +563,7 @@ static bool is_hibernation_enabled_for_vm(void)
     return false;
 }
 
-#define IMDSHOST "169.254.169.254"
-#define REQUEST "GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1\r\nHost: " IMDSHOST "\r\nMetadata:true\r\n\r\n"
-
-static int get_socket(char *host, int portno)
+static int get_socket(const char *host, int portno)
 {
     struct hostent *server;
     struct sockaddr_in serv_addr;
@@ -619,17 +616,23 @@ static bool is_hibernation_allowed_for_vm(void)
 {   
     int portno = 80;
     char response[4096];
-    int sockfd, bytes;
+    int sockfd;
+
+    const char *imds_host = "169.254.169.254";
+    const char *req = "GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1\r\nHost: %s\r\nMetadata:true\r\n\r\n";
+    size_t req_size = strlen(req) + strlen(imds_host);
+    char request[req_size];
+    snprintf(request, req_size, req, imds_host);
     
-    sockfd = get_socket(IMDSHOST, portno);
+    sockfd = get_socket(imds_host, portno);
     if(sockfd < 0)
         return false;
         
     /* What are we going to send? */
-    log_info("IMDS Request:\n%s\n",REQUEST);
+    log_info("IMDS Request:\n%s\n", request);
 
     /* send the request */ 
-    if (write(sockfd, &REQUEST, strlen(REQUEST)) < 0)
+    if (write(sockfd, request, strlen(request)) < 0)
     {
         log_info("Failed to write to socket: %s", strerror(errno));
         return false;
