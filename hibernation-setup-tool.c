@@ -563,7 +563,7 @@ static bool is_hibernation_enabled_for_vm(void)
     return false;
 }
 
-static int get_socket(const char *host, int portno)
+static int open_and_get_socket(const char *host, int portno)
 {
     struct hostent *server;
     struct sockaddr_in serv_addr;
@@ -624,7 +624,7 @@ static bool is_hibernation_allowed_for_vm(void)
     char request[req_size];
     snprintf(request, req_size, imds_req, imds_host);
     
-    sockfd = get_socket(imds_host, portno);
+    sockfd = open_and_get_socket(imds_host, portno);
     if(sockfd < 0)
         return false;
         
