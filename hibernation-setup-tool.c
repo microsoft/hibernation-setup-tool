@@ -22,8 +22,8 @@
 #include <linux/magic.h>
 #include <linux/suspend_ioctls.h>
 #include <mntent.h>
-#include <netdb.h> /* struct hostent, gethostbyname */
-#include <netinet/in.h> /* struct sockaddr_in, struct sockaddr */
+#include <netdb.h>
+#include <netinet/in.h> 
 #include <spawn.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -42,7 +42,7 @@
 #include <sys/wait.h>
 #include <syscall.h>
 #include <syslog.h>
-#include <sys/socket.h> /* socket, connect */
+#include <sys/socket.h>
 #include <unistd.h>
 
 #define MEGA_BYTES (1ul << 20)
@@ -619,26 +619,40 @@ static bool is_hibernation_allowed_for_vm(void)
     int sockfd;
 
     const char *imds_host = "169.254.169.254";
-    const char *req = "GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1\r\nHost: %s\r\nMetadata:true\r\n\r\n";
-    size_t req_size = strlen(req) + strlen(imds_host);
+    const char *imds_req = "GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1\r\nHost: %s\r\nMetadata:true\r\n\r\n";
+    size_t req_size = strlen(imds_req) + strlen(imds_host);
     char request[req_size];
-    snprintf(request, req_size, req, imds_host);
+    snprintf(request, req_size, imds_req, imds_host);
     
     sockfd = get_socket(imds_host, portno);
     if(sockfd < 0)
         return false;
         
-    /* What are we going to send? */
     log_info("IMDS Request:\n%s\n", request);
 
-    /* send the request */ 
+    /* 
+        Sample request - 
+            GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1
+            Host: 169.254.169.254
+            Metadata:true
+    */ 
     if (write(sockfd, request, strlen(request)) < 0)
     {
         log_info("Failed to write to socket: %s", strerror(errno));
         return false;
     }
 
-    // Get the response
+    /* 
+        Sample response - 
+            HTTP/1.1 200 OK
+            Content-Type: text/plain; charset=utf-8
+            Server: IMDS/150.870.65.597
+            Date: Tue, 22 Mar 2022 00:34:37 GMT
+            Content-Length: 4
+
+            true    (or false)
+
+    */
     if (read(sockfd, response, sizeof(response) - 1) < 0)
     {
         log_info("Failed to read from socket: %s", strerror(errno));
@@ -1659,11 +1673,6 @@ static void ensure_systemd_hooks_are_set_up(void)
 
 int main(int argc, char *argv[])
 {
-    if (!is_hibernation_allowed_for_vm()) {
-        log_fatal("Hibernation not allowed for this VM. Please enable Hibernation during VM creation");
-        return 1;
-    }
-
     if (geteuid() != 0) {
         log_fatal("This program has to be executed with superuser privileges.");
         return 1;
@@ -1671,6 +1680,11 @@ int main(int argc, char *argv[])
 
     if (!is_hibernation_enabled_for_vm()) {
         log_fatal("Hibernation not enabled for this VM.");
+        return 1;
+    }
+
+    if (!is_hibernation_allowed_for_vm()) {
+        log_fatal("Hibernation not allowed for this VM. Please enable Hibernation during VM creation");
         return 1;
     }
 
