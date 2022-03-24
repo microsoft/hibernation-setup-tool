@@ -644,7 +644,7 @@ static bool is_hibernation_allowed_for_vm(void)
         return false;
     }
 
-    /* 
+    /*
         Sample response -
             HTTP/1.1 200 OK
             Content-Type: text/plain; charset=utf-8
