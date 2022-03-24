@@ -23,7 +23,7 @@
 #include <linux/suspend_ioctls.h>
 #include <mntent.h>
 #include <netdb.h>
-#include <netinet/in.h> 
+#include <netinet/in.h>
 #include <spawn.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -571,17 +571,17 @@ static int open_and_get_socket(const char *host, int portno)
 
     /* create the socket */
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) 
+    if (sockfd < 0)
     {
         log_info("Error opening socket: %s", strerror(errno));
         return -1;
     }
 
-    struct timeval timeout;      
+    struct timeval timeout;
     timeout.tv_sec = 10;
     timeout.tv_usec = 0;
-    
-    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0 || 
+
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0 ||
         setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0)
     {
         log_info("Unable to set timeouts for socket: %s", strerror(errno));
@@ -590,9 +590,9 @@ static int open_and_get_socket(const char *host, int portno)
 
     /* lookup the ip address */
     server = gethostbyname(host);
-    if (server == NULL) 
+    if (server == NULL)
     {
-        log_info("Unable to fetch host info %s: %s", host, strerror(errno));
+        log_info("Unable to fetch host info %s: %s", host, strerror(h_errno));
         return -1;
     }
 
@@ -606,6 +606,7 @@ static int open_and_get_socket(const char *host, int portno)
     if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
     {
         log_info("Unable to connect to host %s: %s", host, strerror(errno));
+        close(sockfd);
         return -1;
     }
 
@@ -613,37 +614,38 @@ static int open_and_get_socket(const char *host, int portno)
 }
 
 static bool is_hibernation_allowed_for_vm(void)
-{   
+{
     int portno = 80;
-    char response[4096];
-    int sockfd;
+    char response[PATH_MAX];
+    int sockfd, read_bytes;
 
     const char *imds_host = "169.254.169.254";
     const char *imds_req = "GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1\r\nHost: %s\r\nMetadata:true\r\n\r\n";
-    size_t req_size = strlen(imds_req) + strlen(imds_host);
+    size_t req_size = strlen(imds_req) + strlen(imds_host) + 1;
     char request[req_size];
     snprintf(request, req_size, imds_req, imds_host);
-    
+
     sockfd = open_and_get_socket(imds_host, portno);
     if(sockfd < 0)
         return false;
-        
+
     log_info("IMDS Request:\n%s\n", request);
 
-    /* 
-        Sample request - 
+    /*
+        Sample request -
             GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1
             Host: 169.254.169.254
             Metadata:true
-    */ 
+    */
     if (write(sockfd, request, strlen(request)) < 0)
     {
         log_info("Failed to write to socket: %s", strerror(errno));
+        close(sockfd);
         return false;
     }
 
     /* 
-        Sample response - 
+        Sample response -
             HTTP/1.1 200 OK
             Content-Type: text/plain; charset=utf-8
             Server: IMDS/150.870.65.597
@@ -651,23 +653,23 @@ static bool is_hibernation_allowed_for_vm(void)
             Content-Length: 4
 
             true    (or false)
-
     */
-    if (read(sockfd, response, sizeof(response) - 1) < 0)
+    if ((read_bytes = read(sockfd, response, sizeof(response) - 1)) <= 0)
     {
         log_info("Failed to read from socket: %s", strerror(errno));
+        close(sockfd);
         return false;
     }
+    response[read_bytes] = '\0';
 
     /* close the socket */
-    shutdown(sockfd, SHUT_RDWR);
     close(sockfd);
 
     /* process response */
     log_info("IMDS Response:\n%s\n",response);
     if(strstr(response, "true"))
     {
-        log_info("Hibernation is allowed for this machine");
+        log_info("Hibernation is allowed for this VM");
         return true;
     }
     return false;
