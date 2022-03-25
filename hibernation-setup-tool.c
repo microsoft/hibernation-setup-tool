@@ -585,6 +585,7 @@ static int open_and_get_socket(const char *host, int portno)
         setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0)
     {
         log_info("Unable to set timeouts for socket: %s", strerror(errno));
+        close(sockfd);
         return -1;
     }
 
@@ -593,17 +594,18 @@ static int open_and_get_socket(const char *host, int portno)
     if (server == NULL)
     {
         log_info("Unable to fetch host info %s: %s", host, strerror(h_errno));
+        close(sockfd);
         return -1;
     }
 
     /* fill in the structure */
-    memset(&serv_addr,0,sizeof(serv_addr));
+    memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(portno);
-    memcpy(&serv_addr.sin_addr.s_addr,server->h_addr,server->h_length);
+    memcpy(&serv_addr.sin_addr.s_addr, server->h_addr, server->h_length);
 
     /* connect the socket */
-    if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
+    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
     {
         log_info("Unable to connect to host %s: %s", host, strerror(errno));
         close(sockfd);
@@ -616,7 +618,7 @@ static int open_and_get_socket(const char *host, int portno)
 static bool is_hibernation_allowed_for_vm(void)
 {
     int portno = 80;
-    char response[PATH_MAX];
+    char response[4096];
     int sockfd, read_bytes;
 
     const char *imds_host = "169.254.169.254";
@@ -654,19 +656,27 @@ static bool is_hibernation_allowed_for_vm(void)
 
             true    (or false)
     */
-    if ((read_bytes = read(sockfd, response, sizeof(response) - 1)) <= 0)
+    read_bytes = read(sockfd, response, sizeof(response) - 1);
+    if (read_bytes < 0)
     {
         log_info("Failed to read from socket: %s", strerror(errno));
         close(sockfd);
         return false;
     }
+    else if (read_bytes == 0)
+    {
+        log_info("IMDS connection closed prematurely without returning any response");
+        close(sockfd);
+        return false;
+    }
+    
     response[read_bytes] = '\0';
 
     /* close the socket */
     close(sockfd);
 
     /* process response */
-    log_info("IMDS Response:\n%s\n",response);
+    log_info("IMDS Response:\n%s\n", response);
     if(strstr(response, "true"))
     {
         log_info("Hibernation is allowed for this VM");
