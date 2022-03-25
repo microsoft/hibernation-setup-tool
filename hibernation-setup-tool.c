@@ -669,7 +669,7 @@ static bool is_hibernation_allowed_for_vm(void)
         close(sockfd);
         return false;
     }
-    
+
     response[read_bytes] = '\0';
 
     /* close the socket */
