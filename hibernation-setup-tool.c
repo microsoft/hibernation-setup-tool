@@ -22,6 +22,8 @@
 #include <linux/magic.h>
 #include <linux/suspend_ioctls.h>
 #include <mntent.h>
+#include <netdb.h>
+#include <netinet/in.h>
 #include <spawn.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -40,6 +42,7 @@
 #include <sys/wait.h>
 #include <syscall.h>
 #include <syslog.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #define MEGA_BYTES (1ul << 20)
@@ -557,6 +560,128 @@ static bool is_hibernation_enabled_for_vm(void)
     }
 
     log_info("Even though VM is capable of hibernation, it seems to be disabled.");
+    return false;
+}
+
+static int open_and_get_socket(const char *host, int portno)
+{
+    struct hostent *server;
+    struct sockaddr_in serv_addr;
+    int sockfd;
+
+    /* create the socket */
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0)
+    {
+        log_info("Error opening socket: %s", strerror(errno));
+        return -1;
+    }
+
+    struct timeval timeout;
+    timeout.tv_sec = 10;
+    timeout.tv_usec = 0;
+
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0 ||
+        setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0)
+    {
+        log_info("Unable to set timeouts for socket: %s", strerror(errno));
+        close(sockfd);
+        return -1;
+    }
+
+    /* lookup the ip address */
+    server = gethostbyname(host);
+    if (server == NULL)
+    {
+        log_info("Unable to fetch host info %s: %s", host, strerror(h_errno));
+        close(sockfd);
+        return -1;
+    }
+
+    /* fill in the structure */
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(portno);
+    memcpy(&serv_addr.sin_addr.s_addr, server->h_addr, server->h_length);
+
+    /* connect the socket */
+    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    {
+        log_info("Unable to connect to host %s: %s", host, strerror(errno));
+        close(sockfd);
+        return -1;
+    }
+
+    return sockfd;
+}
+
+static bool is_hibernation_allowed_for_vm(void)
+{
+    int portno = 80;
+    char response[4096];
+    int sockfd, read_bytes;
+
+    const char *imds_host = "169.254.169.254";
+    const char *imds_req = "GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1\r\nHost: %s\r\nMetadata:true\r\n\r\n";
+    size_t req_size = strlen(imds_req) + strlen(imds_host) + 1;
+    char request[req_size];
+    snprintf(request, req_size, imds_req, imds_host);
+
+    sockfd = open_and_get_socket(imds_host, portno);
+    if(sockfd < 0)
+        return false;
+
+    log_info("IMDS Request:\n%s\n", request);
+
+    /*
+        Sample request -
+            GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1
+            Host: 169.254.169.254
+            Metadata:true
+    */
+    if (write(sockfd, request, strlen(request)) < 0)
+    {
+        log_info("Failed to write to socket: %s", strerror(errno));
+        close(sockfd);
+        return false;
+    }
+
+    /*
+        Sample response -
+            HTTP/1.1 200 OK
+            Content-Type: text/plain; charset=utf-8
+            Server: IMDS/150.870.65.597
+            Date: Tue, 22 Mar 2022 00:34:37 GMT
+            Content-Length: 4
+
+            true    (or false)
+    */
+    read_bytes = read(sockfd, response, sizeof(response) - 1);
+    if (read_bytes < 0)
+    {
+        log_info("Failed to read from socket: %s", strerror(errno));
+        close(sockfd);
+        return false;
+    }
+    else if (read_bytes == 0)
+    {
+        log_info("IMDS connection closed prematurely without returning any response");
+        close(sockfd);
+        return false;
+    }
+
+    response[read_bytes] = '\0';
+
+    /* close the socket */
+    close(sockfd);
+
+    /* process response */
+    log_info("IMDS Response:\n%s\n", response);
+    if(strstr(response, "true"))
+    {
+        log_info("Hibernation is allowed for this VM");
+        return true;
+    }
     return false;
 }
 
@@ -1567,6 +1692,11 @@ int main(int argc, char *argv[])
 
     if (!is_hibernation_enabled_for_vm()) {
         log_fatal("Hibernation not enabled for this VM.");
+        return 1;
+    }
+
+    if (!is_hibernation_allowed_for_vm()) {
+        log_fatal("Hibernation not allowed for this VM. Please enable Hibernation during VM creation");
         return 1;
     }
 
