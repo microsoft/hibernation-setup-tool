@@ -33,6 +33,7 @@
 #include <string.h>
 #include <sys/auxv.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/statfs.h>
 #include <sys/swap.h>
@@ -42,7 +43,6 @@
 #include <sys/wait.h>
 #include <syscall.h>
 #include <syslog.h>
-#include <sys/socket.h>
 #include <unistd.h>
 
 #define MEGA_BYTES (1ul << 20)
@@ -343,6 +343,20 @@ static size_t swap_needed_size(size_t phys_mem)
     log_fatal("Hibernation not recommended for a machine with more than 256GB of RAM");
 }
 
+static size_t free_device_space()
+{
+    struct statfs buffer;
+    size_t block_size;
+    size_t free_bytes;
+
+    if (statfs("/", &buffer) < 0)
+        log_fatal("Could not determine free device space: %s", strerror(errno));
+
+    block_size = buffer.f_bsize;
+    free_bytes = block_size * buffer.f_bfree;
+    return free_bytes;
+}
+
 static char *get_uuid_for_dev_path(const char *path)
 {
     struct stat dev_st;
@@ -571,8 +585,7 @@ static int open_and_get_socket(const char *host, int portno)
 
     /* create the socket */
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0)
-    {
+    if (sockfd < 0) {
         log_info("Error opening socket: %s", strerror(errno));
         return -1;
     }
@@ -582,8 +595,7 @@ static int open_and_get_socket(const char *host, int portno)
     timeout.tv_usec = 0;
 
     if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) < 0 ||
-        setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0)
-    {
+        setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout) < 0) {
         log_info("Unable to set timeouts for socket: %s", strerror(errno));
         close(sockfd);
         return -1;
@@ -591,8 +603,7 @@ static int open_and_get_socket(const char *host, int portno)
 
     /* lookup the ip address */
     server = gethostbyname(host);
-    if (server == NULL)
-    {
+    if (server == NULL) {
         log_info("Unable to fetch host info %s: %s", host, strerror(h_errno));
         close(sockfd);
         return -1;
@@ -605,8 +616,7 @@ static int open_and_get_socket(const char *host, int portno)
     memcpy(&serv_addr.sin_addr.s_addr, server->h_addr, server->h_length);
 
     /* connect the socket */
-    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-    {
+    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
         log_info("Unable to connect to host %s: %s", host, strerror(errno));
         close(sockfd);
         return -1;
@@ -622,13 +632,14 @@ static bool is_hibernation_allowed_for_vm(void)
     int sockfd, read_bytes;
 
     const char *imds_host = "169.254.169.254";
-    const char *imds_req = "GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1\r\nHost: %s\r\nMetadata:true\r\n\r\n";
+    const char *imds_req =
+        "GET /metadata/instance/compute/additionalCapabilities/hibernationEnabled?api-version=2021-11-01&format=text HTTP/1.1\r\nHost: %s\r\nMetadata:true\r\n\r\n";
     size_t req_size = strlen(imds_req) + strlen(imds_host) + 1;
     char request[req_size];
     snprintf(request, req_size, imds_req, imds_host);
 
     sockfd = open_and_get_socket(imds_host, portno);
-    if(sockfd < 0)
+    if (sockfd < 0)
         return false;
 
     log_info("IMDS Request:\n%s\n", request);
@@ -639,8 +650,7 @@ static bool is_hibernation_allowed_for_vm(void)
             Host: 169.254.169.254
             Metadata:true
     */
-    if (write(sockfd, request, strlen(request)) < 0)
-    {
+    if (write(sockfd, request, strlen(request)) < 0) {
         log_info("Failed to write to socket: %s", strerror(errno));
         close(sockfd);
         return false;
@@ -657,14 +667,11 @@ static bool is_hibernation_allowed_for_vm(void)
             true    (or false)
     */
     read_bytes = read(sockfd, response, sizeof(response) - 1);
-    if (read_bytes < 0)
-    {
+    if (read_bytes < 0) {
         log_info("Failed to read from socket: %s", strerror(errno));
         close(sockfd);
         return false;
-    }
-    else if (read_bytes == 0)
-    {
+    } else if (read_bytes == 0) {
         log_info("IMDS connection closed prematurely without returning any response");
         close(sockfd);
         return false;
@@ -677,8 +684,7 @@ static bool is_hibernation_allowed_for_vm(void)
 
     /* process response */
     log_info("IMDS Response:\n%s\n", response);
-    if(strstr(response, "true"))
-    {
+    if (strstr(response, "true")) {
         log_info("Hibernation is allowed for this VM");
         return true;
     }
@@ -835,6 +841,9 @@ static bool try_zeroing_out_with_fallocate(const char *path, off_t size)
     }
 
     if (fallocate(fd, 0, 0, size) < 0) {
+        if (unlink(path) < 0)
+            log_info("Couldn't remove incomplete hibernation file %s: %s", path, strerror(errno));
+
         if (errno == ENOSPC) {
             log_fatal("System ran out of disk space while allocating hibernation file. It needs %zd MiB", size / MEGA_BYTES);
         } else {
@@ -1482,7 +1491,7 @@ static int handle_pre_systemd_suspend_notification(const char *action)
          * scenarios (i.e. nobody else tried creating a directory with that
          * name), this will succeed the first try.  This directory will be
          * removed when we resume. */
-        for (int try = 0;; try++) {
+        for (int try = 0;; try ++) {
             if (try > 10) {
                 notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
                 log_fatal("Tried too many times to create /tmp/hibernation-setup-tool and failed. Giving up");
@@ -1716,6 +1725,11 @@ int main(int argc, char *argv[])
     size_t needed_swap = swap_needed_size(total_ram);
 
     log_info("System has %zu MB of RAM; needs a swap area of %zu MB", total_ram / MEGA_BYTES, needed_swap / MEGA_BYTES);
+
+    size_t free_space = free_device_space();
+
+    if (free_space < needed_swap)
+        log_fatal("System needs a swap area of %zu MB; but only has %zu MB free space on device", needed_swap / MEGA_BYTES, free_space / MEGA_BYTES);
 
     struct swap_file *swap = find_swap_file(needed_swap);
 
