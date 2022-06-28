@@ -258,17 +258,18 @@ static struct swap_file *find_swap_file(size_t needed_size)
             break;
         }
 
-        if (!strcmp(type, "file")) {
+        if (!strncmp(type, "file", sizeof("file") - 1)) {
             char *size = next_field(type);
 
             if (!size)
                 log_fatal("Malformed line in /proc/swaps: can't find size column");
 
-            size_t size_as_int = parse_size_or_die(size, ' ', NULL);
-            if (size_as_int < needed_size)
+	    size_t size_as_int_kb = parse_size_or_die(size, ' ', NULL);
+	    size_t size_as_int_b = size_as_int_kb * 1024;
+	    if (size_as_int_b < needed_size)
                 continue;
 
-            out = new_swap_file(filename, size_as_int);
+            out = new_swap_file(filename, size_as_int_b);
             break;
         }
     }
