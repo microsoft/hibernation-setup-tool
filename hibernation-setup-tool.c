@@ -343,6 +343,20 @@ static size_t swap_needed_size(size_t phys_mem)
     log_fatal("Hibernation not recommended for a machine with more than 256GB of RAM");
 }
 
+static size_t free_device_space()
+{
+    struct statfs buffer;
+    size_t block_size;
+    size_t free_bytes;
+
+    if (statfs("/", &buffer) < 0)
+        log_fatal("Could not determine free device space: %s", strerror(errno));
+
+    block_size = buffer.f_bsize;
+    free_bytes = block_size * buffer.f_bfree;
+    return free_bytes;
+}
+
 static char *get_uuid_for_dev_path(const char *path)
 {
     struct stat dev_st;
@@ -835,10 +849,14 @@ static bool try_zeroing_out_with_fallocate(const char *path, off_t size)
     }
 
     if (fallocate(fd, 0, 0, size) < 0) {
-        if (errno == ENOSPC) {
+        int fallocate_errno = errno; 
+        if (unlink(path) < 0)
+            log_info("Couldn't remove incomplete hibernation file %s: %s", path, strerror(errno));
+
+        if (fallocate_errno == ENOSPC) {
             log_fatal("System ran out of disk space while allocating hibernation file. It needs %zd MiB", size / MEGA_BYTES);
         } else {
-            log_fatal("Could not allocate %s: %s", path, strerror(errno));
+            log_fatal("Could not allocate %s: %s", path, strerror(fallocate_errno));
         }
     }
 
@@ -1752,6 +1770,10 @@ int main(int argc, char *argv[])
     bool created = false;
     if (!swap) {
         log_info("Creating swap file with %zu MB", needed_swap / MEGA_BYTES);
+
+        size_t free_space = free_device_space();
+        if (free_space < needed_swap)
+            log_fatal("System needs a swap area of %zu MB; but only has %zu MB free space on device", needed_swap / MEGA_BYTES, free_space / MEGA_BYTES);
 
         swap = create_swap_file(needed_swap);
         if (!swap)

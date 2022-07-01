@@ -10,6 +10,9 @@ hibernation-setup-tool: $(OBJS)
 
 all: hibernation-setup-tool
 
+debug: CFLAGS += -DDEBUG -g
+debug: hibernation-setup-tool
+
 .PHONY: clean
 clean:
 	rm -f $(OBJS)
