@@ -849,10 +849,11 @@ static bool try_zeroing_out_with_fallocate(const char *path, off_t size)
     }
 
     if (fallocate(fd, 0, 0, size) < 0) {
+        int fallocate_errno = errno; 
         if (unlink(path) < 0)
             log_info("Couldn't remove incomplete hibernation file %s: %s", path, strerror(errno));
 
-        if (errno == ENOSPC) {
+        if (fallocate_errno == ENOSPC) {
             log_fatal("System ran out of disk space while allocating hibernation file. It needs %zd MiB", size / MEGA_BYTES);
         } else {
             log_fatal("Could not allocate %s: %s", path, strerror(errno));
