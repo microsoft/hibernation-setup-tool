@@ -1431,12 +1431,12 @@ static bool is_cold_boot(void)
         unlink(hibernate_lock_file_name);
 
         if (access(lock_file_path, F_OK) < 0)
-            return true;
+            return false;
 
         unlink(lock_file_path);
     }
 
-    return false;
+    return true;
 }
 
 static void notify_vm_host(enum host_vm_notification notification)
