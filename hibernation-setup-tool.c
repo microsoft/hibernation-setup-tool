@@ -1431,12 +1431,12 @@ static bool is_cold_boot(void)
         unlink(hibernate_lock_file_name);
 
         if (access(lock_file_path, F_OK) < 0)
-            return false;
+            return true;
 
         unlink(lock_file_path);
     }
 
-    return true;
+    return false;
 }
 
 static void notify_vm_host(enum host_vm_notification notification)
@@ -1644,23 +1644,55 @@ static int handle_systemd_suspend_notification(const char *argv0, const char *wh
     return 1;
 }
 
-static void link_hook(const char *src, const char *dest)
+static bool link_hook(const char *src, const char *dest)
 {
     if (link(src, dest) < 0) {
         if (errno != EEXIST)
-            return log_fatal("Couldn't link %s to %s: %s", src, dest, strerror(errno));
+            return false;
     }
 
     log_info("Notifying systemd of new hooks");
     spawn_and_wait("systemctl", 1, "daemon-reload");
+    return true;
 }
 
-static void ensure_systemd_service_enabled(void){
-    // const char *execfn = (const char *)getauxval(AT_EXECFN);
-    // char *location_to_service = execfn + ".service";
+static bool ensure_systemd_service_enabled(void){
+    const char *execfn = (const char *)getauxval(AT_EXECFN);
+    const char *usr_sbin = "/usr/sbin";
+    const char *systemd_dir = "/lib/systemd/system/";
+
     const char *hibernation_service_name = "hibernation-setup-tool.service";
+
+    if (!mkdir(usr_sbin, 0755) && errno != EEXIST) {
+        log_info("Couldn't create location to store hibernation setup tool executable: %s", strerror(errno));
+        return false; 
+    }
+    
+    if (link(execfn, usr_sbin) < 0 && errno != EEXIST) {
+        log_info("Couldn't link %s to %s: %s", execfn, usr_sbin, strerror(errno));
+        return false;
+    }
+    
+    if(!mkdir(systemd_dir, 0755) && errno != EEXIST) { 
+        log_info("Couldn't create location to store hibernation setup tool service: %s", strerror(errno));
+        return false; 
+    }
+
+    char* last_slash = strrchr(execfn, '/');
+    if(last_slash == NULL)
+        return false;
+    *last_slash = '\0';
+
+    char service_path[PATH_MAX];
+    snprintf(service_path, sizeof(service_path), "%s%s%s", execfn, "/", hibernation_service_name);
+
+    if(!link_hook(service_path, systemd_dir)){
+        log_info("Couldn't link %s to %s: %s", service_path, systemd_dir, strerror(errno));
+        return false;
+    }
+
     spawn_and_wait("systemctl", 2, "enable", hibernation_service_name);
-    // spawn_and_wait("systemctl", 1, "daemon-reload");
+    return true;
 }
 
 static void ensure_systemd_hooks_are_set_up(void)
@@ -1696,15 +1728,19 @@ static void ensure_systemd_hooks_are_set_up(void)
         return;
     }
 
-    // I am confused by this link_hook.
-    // This command always fails, because the code above throws ENONENT 
-    if (execfn)
-        return link_hook(execfn, location_to_link);
+    if (execfn) {
+        if(!link_hook(execfn, location_to_link))
+            log_fatal("Couldn't link %s to %s: %s", execfn, location_to_link, strerror(errno));
+        return;
+    } 
 
     char self_path_buf[PATH_MAX];
     const char *self_path = readlink0("/proc/self/exe", self_path_buf);
-    if (self_path)
-        return link_hook(self_path, location_to_link);
+    if (self_path) {
+        if(!link_hook(self_path, location_to_link))
+            log_fatal("Couldn't link %s to %s: %s", self_path, location_to_link, strerror(errno));
+        return;
+    }
 
     return log_fatal("Both getauxval() and readlink(/proc/self/exe) failed. "
                      "Couldn't determine location of this executable to install "
@@ -1798,7 +1834,8 @@ int main(int argc, char *argv[])
 
     if (is_hyperv()) {
         ensure_udev_rules_are_installed();
-        ensure_systemd_service_enabled(); 
+        if(!ensure_systemd_service_enabled())
+            log_info("Could not enable hibernation-setup-tool service");
         ensure_systemd_hooks_are_set_up();
     }
 
