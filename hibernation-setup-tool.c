@@ -1656,18 +1656,58 @@ static bool link_hook(const char *src, const char *dest)
     return true;
 }
 
-static bool ensure_systemd_service_enabled(void){
+static void optional_params(int argc, char **argv, char **action, char **when, char **dest_dir) {
+    if (argc > 2) {   
+        int opt;
+        while ((opt = getopt(argc, argv, "adw:")) != -1)
+        {
+            switch (opt)
+            {
+                case 'a':
+                    *action = optarg; 
+                    break; 
+                 
+                case 'w':
+                    *when = optarg; 
+                    break;
+
+                case 'd':
+                    *dest_dir = optarg;
+                    break;
+            }
+        }
+    }
+}
+
+static bool ensure_systemd_service_enabled(char *dest_dir){
     const char *execfn = (const char *)getauxval(AT_EXECFN);
-    const char *usr_sbin = "/usr/sbin";
-    const char *systemd_dir = "/lib/systemd/system/";
+    const char *usr_sbin_default = "/usr/sbin", *systemd_dir_default = "/lib/systemd/system/";
+
+    char usr_sbin[PATH_MAX], systemd_dir[PATH_MAX];  
+
+    if (dest_dir) {
+        snprintf(usr_sbin, sizeof(usr_sbin), "%s%s%s", dest_dir, "/", usr_sbin_default);
+        snprintf(systemd_dir, sizeof(systemd_dir), "%s%s%s", dest_dir, "/", systemd_dir_default);
+    } else {
+        snprintf(usr_sbin, sizeof(usr_sbin), "%s", usr_sbin_default);
+        snprintf(systemd_dir, sizeof(systemd_dir), "%s", systemd_dir_default);
+    }
 
     const char *hibernation_service_name = "hibernation-setup-tool.service";
+
+    char *tool_mode_str = "0755", *service_mode_str = "0644";
+    int tool_mode = strtol(tool_mode_str, 0, 8), service_mode = strtol(service_mode_str, 0, 8);
 
     if (!mkdir(usr_sbin, 0755) && errno != EEXIST) {
         log_info("Couldn't create location to store hibernation setup tool executable: %s", strerror(errno));
         return false; 
     }
     
+    if (chmod(execfn, tool_mode) < 0){
+        log_info("Couldn't set permissions of %s to %s: %s", execfn, tool_mode_str, strerror(errno));
+        return false; 
+    } 
+
     if (link(execfn, usr_sbin) < 0 && errno != EEXIST) {
         log_info("Couldn't link %s to %s: %s", execfn, usr_sbin, strerror(errno));
         return false;
@@ -1685,6 +1725,11 @@ static bool ensure_systemd_service_enabled(void){
 
     char service_path[PATH_MAX];
     snprintf(service_path, sizeof(service_path), "%s%s%s", execfn, "/", hibernation_service_name);
+
+    if(chmod(service_path, service_mode) < 0){
+        log_info("Couldn't set permissions of %s to %s: %s", service_path, service_mode_str, strerror(errno));
+        return false; 
+    }
 
     if(!link_hook(service_path, systemd_dir)){
         log_info("Couldn't link %s to %s: %s", service_path, systemd_dir, strerror(errno));
@@ -1749,6 +1794,12 @@ static void ensure_systemd_hooks_are_set_up(void)
 
 int main(int argc, char *argv[])
 {
+    char *dest_dir = NULL;
+    char *when = NULL; 
+    char *action = NULL; 
+
+    optional_params(argc, argv, &dest_dir, &when, &action);
+    
     if (geteuid() != 0) {
         log_fatal("This program has to be executed with superuser privileges.");
         return 1;
@@ -1767,8 +1818,8 @@ int main(int argc, char *argv[])
     if (is_hyperv()) {
         /* We only handle these things here on Hyper-V VMs because it's the only
          * hypervisor we know that might need these kinds of notifications. */
-        if (argc == 3)
-            return handle_systemd_suspend_notification(argv[0], argv[1], argv[2]);
+        if (when && action)
+            return handle_systemd_suspend_notification(argv[0], when, action);
         if (is_cold_boot())
             notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
     }
@@ -1834,7 +1885,7 @@ int main(int argc, char *argv[])
 
     if (is_hyperv()) {
         ensure_udev_rules_are_installed();
-        if(!ensure_systemd_service_enabled())
+        if(!ensure_systemd_service_enabled(dest_dir))
             log_info("Could not enable hibernation-setup-tool service");
         ensure_systemd_hooks_are_set_up();
     }
