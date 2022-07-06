@@ -1431,12 +1431,12 @@ static bool is_cold_boot(void)
         unlink(hibernate_lock_file_name);
 
         if (access(lock_file_path, F_OK) < 0)
-            return true;
+            return false;
 
         unlink(lock_file_path);
     }
 
-    return false;
+    return true;
 }
 
 static void notify_vm_host(enum host_vm_notification notification)
@@ -1655,6 +1655,14 @@ static void link_hook(const char *src, const char *dest)
     spawn_and_wait("systemctl", 1, "daemon-reload");
 }
 
+static void ensure_systemd_service_enabled(void){
+    // const char *execfn = (const char *)getauxval(AT_EXECFN);
+    // char *location_to_service = execfn + ".service";
+    const char *hibernation_service_name = "hibernation-setup-tool.service";
+    spawn_and_wait("systemctl", 2, "enable", hibernation_service_name);
+    // spawn_and_wait("systemctl", 1, "daemon-reload");
+}
+
 static void ensure_systemd_hooks_are_set_up(void)
 {
     /* Although the systemd manual cautions against dropping executables or scripts in
@@ -1688,6 +1696,8 @@ static void ensure_systemd_hooks_are_set_up(void)
         return;
     }
 
+    // I am confused by this link_hook.
+    // This command always fails, because the code above throws ENONENT 
     if (execfn)
         return link_hook(execfn, location_to_link);
 
@@ -1743,7 +1753,7 @@ int main(int argc, char *argv[])
         log_info("Swap file not found");
     }
 
-    if (swap && swap->capacity < needed_swap) {
+    if (swap && swap->capacity != needed_swap) {
         log_info("Swap file %s has capacity of %zu MB but needs %zu MB. Recreating. "
                  "System will run without a swap file while this is being set up.",
                  swap->path, swap->capacity / MEGA_BYTES, needed_swap / MEGA_BYTES);
@@ -1788,6 +1798,7 @@ int main(int argc, char *argv[])
 
     if (is_hyperv()) {
         ensure_udev_rules_are_installed();
+        ensure_systemd_service_enabled(); 
         ensure_systemd_hooks_are_set_up();
     }
 
