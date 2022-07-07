@@ -1681,19 +1681,20 @@ static void optional_params(int argc, char **argv, char **action, char **when, c
 
 static bool ensure_systemd_service_enabled(char *dest_dir){
     const char *execfn = (const char *)getauxval(AT_EXECFN);
-    const char *usr_sbin_default = "/usr/sbin", *systemd_dir_default = "/lib/systemd/system/";
+    const char *usr_sbin_default = "/usr/sbin", *systemd_dir_default = "/lib/systemd/system";
+
+    const char *hibernation_tool_name = "hibernation-setup-tool";
+    const char *hibernation_service_name = "hibernation-setup-tool.service";
 
     char usr_sbin[PATH_MAX], systemd_dir[PATH_MAX];  
 
     if (dest_dir) {
-        snprintf(usr_sbin, sizeof(usr_sbin), "%s%s%s", dest_dir, "/", usr_sbin_default);
-        snprintf(systemd_dir, sizeof(systemd_dir), "%s%s%s", dest_dir, "/", systemd_dir_default);
+        snprintf(usr_sbin, sizeof(usr_sbin), "%s%s%s%s", dest_dir, usr_sbin_default, "/", hibernation_tool_name);
+        snprintf(systemd_dir, sizeof(systemd_dir), "%s%s%s%s", dest_dir, systemd_dir_default, "/", hibernation_service_name);
     } else {
-        snprintf(usr_sbin, sizeof(usr_sbin), "%s", usr_sbin_default);
-        snprintf(systemd_dir, sizeof(systemd_dir), "%s", systemd_dir_default);
+        snprintf(usr_sbin, sizeof(usr_sbin), "%s%s%s", usr_sbin_default, "/", hibernation_tool_name);
+        snprintf(systemd_dir, sizeof(systemd_dir), "%s%s%s", systemd_dir_default, "/", hibernation_service_name);
     }
-
-    const char *hibernation_service_name = "hibernation-setup-tool.service";
 
     char *tool_mode_str = "0755", *service_mode_str = "0644";
     int tool_mode = strtol(tool_mode_str, 0, 8), service_mode = strtol(service_mode_str, 0, 8);
