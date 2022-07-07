@@ -1665,36 +1665,53 @@ static void ensure_systemd_hooks_are_set_up(void)
      * More info: https://www.freedesktop.org/software/systemd/man/systemd-suspend.service.html
      */
     const char *execfn = (const char *)getauxval(AT_EXECFN);
-    const char *location_to_link = "/usr/lib/systemd/systemd-sleep";
+    const char *location_to_link_dir = "/usr/lib/systemd/systemd-sleep";
+
     struct stat st;
     int r;
 
-    r = stat(location_to_link, &st);
+    r = stat(location_to_link_dir, &st);
     if (r < 0 && errno == ENOENT) {
-        log_info("Attempting to create hibernate/resume hook directory: %s", location_to_link);
-        if (mkdir(location_to_link, 0755) < 0) {
-            log_info("Couldn't create %s: %s. VM host won't receive suspend/resume notifications.", location_to_link, strerror(errno));
+        log_info("Attempting to create hibernate/resume hook directory: %s", location_to_link_dir);
+        if (mkdir(location_to_link_dir, 0755) < 0) {
+            log_info("Couldn't create %s: %s. VM host won't receive suspend/resume notifications.", location_to_link_dir, strerror(errno));
             return;
         }
     } else if (r < 0) {
         log_info("Couldn't stat(%s): %s. We need to drop a file there to allow "
                  "the VM host to be notified of hibernation/resumes.",
-                 location_to_link, strerror(errno));
+                 location_to_link_dir, strerror(errno));
         return;
     } else if (!S_ISDIR(st.st_mode)) {
         log_info("%s isn't a directory, can't drop a link to the agent there to "
                  " notify host of hibernation/resume",
-                 location_to_link);
+                 location_to_link_dir);
         return;
     }
 
-    if (execfn)
-        return link_hook(execfn, location_to_link);
+    if (execfn) {
+        char location_to_link_file[PATH_MAX];
+        char *execfn_file_name = strrchr(execfn, '/') + 1; 
+
+        snprintf(location_to_link_file, sizeof(location_to_link_file), "%s%s%s", location_to_link_dir, "/", execfn_file_name);
+        log_info("location to link file: %s", location_to_link_file);
+
+        return link_hook(execfn, location_to_link_file);
+    }
 
     char self_path_buf[PATH_MAX];
     const char *self_path = readlink0("/proc/self/exe", self_path_buf);
-    if (self_path)
-        return link_hook(self_path, location_to_link);
+
+    log_info("exe path: %s", self_path);
+    if (self_path){
+        char location_to_link_file[PATH_MAX]; 
+        char *exe_file_name = strrchr(self_path, '/') + 1;
+
+        snprintf(location_to_link_file, sizeof(location_to_link_file), "%s%s%s", location_to_link_dir, "/", exe_file_name);
+        log_info("location to link file %s", location_to_link_file);
+
+        return link_hook(self_path, location_to_link_file);
+    }
 
     return log_fatal("Both getauxval() and readlink(/proc/self/exe) failed. "
                      "Couldn't determine location of this executable to install "
