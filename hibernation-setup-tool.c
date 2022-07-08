@@ -1694,8 +1694,6 @@ static void ensure_systemd_hooks_are_set_up(void)
         char *execfn_file_name = strrchr(execfn, '/') + 1; 
 
         snprintf(location_to_link_file, sizeof(location_to_link_file), "%s%s%s", location_to_link_dir, "/", execfn_file_name);
-        log_info("location to link file: %s", location_to_link_file);
-
         return link_hook(execfn, location_to_link_file);
     }
 
@@ -1708,8 +1706,6 @@ static void ensure_systemd_hooks_are_set_up(void)
         char *exe_file_name = strrchr(self_path, '/') + 1;
 
         snprintf(location_to_link_file, sizeof(location_to_link_file), "%s%s%s", location_to_link_dir, "/", exe_file_name);
-        log_info("location to link file %s", location_to_link_file);
-
         return link_hook(self_path, location_to_link_file);
     }
 
