@@ -101,8 +101,12 @@ static int ioprio_set(int which, int who, int ioprio) { return (int)syscall(SYS_
 
 static void log_impl(int log_level, const char *fmt, va_list ap)
 {
-    if (log_needs_syslog)
-        vsyslog(log_level, fmt, ap);
+    if (log_needs_syslog){
+        va_list ap_cpy; 
+        va_copy(ap_cpy, ap);
+        vsyslog(log_level, fmt, ap_cpy); 
+        va_end(ap_cpy); 
+    }
 
     flockfile(stdout);
 
