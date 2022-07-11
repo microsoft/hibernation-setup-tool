@@ -1700,7 +1700,6 @@ static void ensure_systemd_hooks_are_set_up(void)
     char self_path_buf[PATH_MAX];
     const char *self_path = readlink0("/proc/self/exe", self_path_buf);
 
-    log_info("exe path: %s", self_path);
     if (self_path){
         char location_to_link_file[PATH_MAX]; 
         char *exe_file_name = strrchr(self_path, '/') + 1;
