@@ -1686,20 +1686,24 @@ static bool ensure_systemd_service_enabled(char *dest_dir){
     const char *hibernation_tool_name = "hibernation-setup-tool";
     const char *hibernation_service_name = "hibernation-setup-tool.service";
 
-    char usr_sbin[PATH_MAX], systemd_dir[PATH_MAX];  
+    char usr_sbin_dir[PATH_MAX], systemd_dir[PATH_MAX];
+    char usr_sbin_path[PATH_MAX], systemd_path[PATH_MAX];
 
     if (dest_dir) {
-        snprintf(usr_sbin, sizeof(usr_sbin), "%s%s%s%s", dest_dir, usr_sbin_default, "/", hibernation_tool_name);
-        snprintf(systemd_dir, sizeof(systemd_dir), "%s%s%s%s", dest_dir, systemd_dir_default, "/", hibernation_service_name);
+        snprintf(usr_sbin_dir, sizeof(usr_sbin_dir), "%s%s", dest_dir, usr_sbin_default);
+        snprintf(systemd_dir, sizeof(systemd_dir), "%s%s", dest_dir, systemd_dir_default);
     } else {
-        snprintf(usr_sbin, sizeof(usr_sbin), "%s%s%s", usr_sbin_default, "/", hibernation_tool_name);
-        snprintf(systemd_dir, sizeof(systemd_dir), "%s%s%s", systemd_dir_default, "/", hibernation_service_name);
+        snprintf(usr_sbin_dir, sizeof(usr_sbin_dir), "%s", usr_sbin_default);
+        snprintf(systemd_dir, sizeof(systemd_dir), "%s", systemd_dir_default);
     }
+
+    snprintf(usr_sbin_path, sizeof(usr_sbin_path), "%s%s%s", usr_sbin_dir, "/", hibernation_tool_name);
+    snprintf(systemd_path, sizeof(systemd_path), "%s%s%s", systemd_dir, "/", hibernation_service_name);
 
     char *tool_mode_str = "0755", *service_mode_str = "0644";
     int tool_mode = strtol(tool_mode_str, 0, 8), service_mode = strtol(service_mode_str, 0, 8);
 
-    if (!mkdir(usr_sbin, 0755) && errno != EEXIST) {
+    if (!mkdir(usr_sbin_dir, 0755) && errno != EEXIST) {
         log_info("Couldn't create location to store hibernation setup tool executable: %s", strerror(errno));
         return false; 
     }
@@ -1709,8 +1713,8 @@ static bool ensure_systemd_service_enabled(char *dest_dir){
         return false; 
     } 
 
-    if (link(execfn, usr_sbin) < 0 && errno != EEXIST) {
-        log_info("Couldn't link %s to %s: %s", execfn, usr_sbin, strerror(errno));
+    if (link(execfn, usr_sbin_path) < 0 && errno != EEXIST) {
+        log_info("Couldn't link %s to %s: %s", execfn, usr_sbin_path, strerror(errno));
         return false;
     }
     
@@ -1732,8 +1736,8 @@ static bool ensure_systemd_service_enabled(char *dest_dir){
         return false; 
     }
 
-    if(!link_hook(service_path, systemd_dir)){
-        log_info("Couldn't link %s to %s: %s", service_path, systemd_dir, strerror(errno));
+    if(!link_hook(service_path, systemd_path)){
+        log_info("Couldn't link %s to %s: %s", service_path, systemd_path, strerror(errno));
         return false;
     }
 
