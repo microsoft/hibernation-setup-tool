@@ -1468,6 +1468,10 @@ static int recursive_rmdir_cb(const char *fpath, const struct stat *st, int type
     case FTW_D: /* directory */
         return rmdir(fpath) == 0 ? FTW_CONTINUE : FTW_STOP;
 
+    case FTW_DP: 
+        log_info("Removing %s directory. Its subdirectories and subfiles have been visited.", fpath);
+        return rmdir(fpath) == 0 ? FTW_CONTINUE : FTW_STOP;
+    
     case FTW_SL:
         /* We refuse to follow symbolic links as it might lead us to some directory outside
          * the one we're trying to remove.  The only symlinks we care about are those that
@@ -1576,9 +1580,15 @@ static int handle_pre_systemd_suspend_notification(const char *action)
                 log_fatal("Couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
             }
         }
-        if (link(pattern, hibernate_lock_file_name) < 0) {
+        // This throws a invalid-cross device link error, because we are creating a hard link 
+        // of a file on /tmp partition, tmpfs filesystem to /etc partition (on ubuntu ext4 filesystem)
+        // While hardlinks cannot work across filesystem boundaries, symbolic links can.
+        // This is because hard link knows nothing about what is on the other filesystem
+        // or where your data there is stored. 
+        // link(pattern, hibernate_lock_file_name) -> symlink(pattern, hibernate_lock_file_name)
+        if (symlink(pattern, hibernate_lock_file_name) < 0) {
             notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-            log_fatal("Couldn't link %s to %s: %s", pattern, hibernate_lock_file_name, strerror(errno));
+            log_fatal("Couldn't symlink %s to %s: %s", pattern, hibernate_lock_file_name, strerror(errno));
         }
 
         notify_vm_host(HOST_VM_NOTIFY_HIBERNATING);
