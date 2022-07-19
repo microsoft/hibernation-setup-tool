@@ -1468,6 +1468,10 @@ static int recursive_rmdir_cb(const char *fpath, const struct stat *st, int type
     case FTW_D: /* directory */
         return rmdir(fpath) == 0 ? FTW_CONTINUE : FTW_STOP;
 
+    case FTW_DP: 
+        log_info("Removing %s directory. Its subdirectories and subfiles have been visited.", fpath);
+        return rmdir(fpath) == 0 ? FTW_CONTINUE : FTW_STOP;
+    
     case FTW_SL:
         /* We refuse to follow symbolic links as it might lead us to some directory outside
          * the one we're trying to remove.  The only symlinks we care about are those that
@@ -1535,13 +1539,15 @@ static int handle_pre_systemd_suspend_notification(const char *action)
                     log_fatal("Couldn't remove /tmp/hibernation-setup-tool directory before proceeding");
                 }
 
-                log_info("/tmp/hibernation-setup-tool exists and isn't a directory! Removing it and trying again (try %d)", try);
+                else {
+                    log_info("/tmp/hibernation-setup-tool exists and isn't a directory! Removing it and trying again (try %d)", try);
 
-                if (!unlink("/tmp/hibernation-setup-tool"))
-                    continue;
+                    if (!unlink("/tmp/hibernation-setup-tool"))
+                        continue;
 
-                notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-                log_fatal("Couldn't remove the file: %s, giving up", strerror(errno));
+                    notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+                    log_fatal("Couldn't remove the file: %s, giving up", strerror(errno));
+                }
             }
 
             log_info("/tmp/hibernation-setup-tool couldn't be found but mkdir() told us it exists, trying again (try %d)", try);
@@ -1566,14 +1572,15 @@ static int handle_pre_systemd_suspend_notification(const char *action)
         close(fd);
 
         if (unlink(hibernate_lock_file_name) < 0) {
-            if (errno != EEXIST) {
+            if (!access(hibernate_lock_file_name, F_OK)) {
                 notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
                 log_fatal("Couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
             }
         }
-        if (link(pattern, hibernate_lock_file_name) < 0) {
+
+        if (symlink(pattern, hibernate_lock_file_name) < 0) {
             notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-            log_fatal("Couldn't link %s to %s: %s", pattern, hibernate_lock_file_name, strerror(errno));
+            log_fatal("Couldn't symlink %s to %s: %s", pattern, hibernate_lock_file_name, strerror(errno));
         }
 
         notify_vm_host(HOST_VM_NOTIFY_HIBERNATING);
@@ -1630,11 +1637,6 @@ static int handle_post_systemd_suspend_notification(const char *action)
 
 static int handle_systemd_suspend_notification(const char *argv0, const char *when, const char *action)
 {
-    if (!getenv("SYSTEMD_SLEEP_ACTION")) {
-        log_fatal("These arguments can only be used when called from systemd");
-        return 1;
-    }
-
     log_needs_prefix = true;
     log_needs_syslog = true;
 
@@ -1669,36 +1671,48 @@ static void ensure_systemd_hooks_are_set_up(void)
      * More info: https://www.freedesktop.org/software/systemd/man/systemd-suspend.service.html
      */
     const char *execfn = (const char *)getauxval(AT_EXECFN);
-    const char *location_to_link = "/usr/lib/systemd/systemd-sleep";
+    const char *location_to_link_dir = "/usr/lib/systemd/systemd-sleep";
+
     struct stat st;
     int r;
 
-    r = stat(location_to_link, &st);
+    r = stat(location_to_link_dir, &st);
     if (r < 0 && errno == ENOENT) {
-        log_info("Attempting to create hibernate/resume hook directory: %s", location_to_link);
-        if (mkdir(location_to_link, 0755) < 0) {
-            log_info("Couldn't create %s: %s. VM host won't receive suspend/resume notifications.", location_to_link, strerror(errno));
+        log_info("Attempting to create hibernate/resume hook directory: %s", location_to_link_dir);
+        if (mkdir(location_to_link_dir, 0755) < 0) {
+            log_info("Couldn't create %s: %s. VM host won't receive suspend/resume notifications.", location_to_link_dir, strerror(errno));
             return;
         }
     } else if (r < 0) {
         log_info("Couldn't stat(%s): %s. We need to drop a file there to allow "
                  "the VM host to be notified of hibernation/resumes.",
-                 location_to_link, strerror(errno));
+                 location_to_link_dir, strerror(errno));
         return;
     } else if (!S_ISDIR(st.st_mode)) {
         log_info("%s isn't a directory, can't drop a link to the agent there to "
                  " notify host of hibernation/resume",
-                 location_to_link);
+                 location_to_link_dir);
         return;
     }
 
-    if (execfn)
-        return link_hook(execfn, location_to_link);
+    if (execfn) {
+        char location_to_link_file[PATH_MAX];
+        char *execfn_file_name = strrchr(execfn, '/') + 1; 
+
+        snprintf(location_to_link_file, sizeof(location_to_link_file), "%s%s%s", location_to_link_dir, "/", execfn_file_name);
+        return link_hook(execfn, location_to_link_file);
+    }
 
     char self_path_buf[PATH_MAX];
     const char *self_path = readlink0("/proc/self/exe", self_path_buf);
-    if (self_path)
-        return link_hook(self_path, location_to_link);
+
+    if (self_path){
+        char location_to_link_file[PATH_MAX]; 
+        char *exe_file_name = strrchr(self_path, '/') + 1;
+
+        snprintf(location_to_link_file, sizeof(location_to_link_file), "%s%s%s", location_to_link_dir, "/", exe_file_name);
+        return link_hook(self_path, location_to_link_file);
+    }
 
     return log_fatal("Both getauxval() and readlink(/proc/self/exe) failed. "
                      "Couldn't determine location of this executable to install "
@@ -1792,7 +1806,7 @@ int main(int argc, char *argv[])
 
     if (is_hyperv()) {
         ensure_udev_rules_are_installed();
-        ensure_systemd_hooks_are_set_up();
+        // ensure_systemd_hooks_are_set_up();
     }
 
     log_info("Swap file for VM hibernation set up successfully");
