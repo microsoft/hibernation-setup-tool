@@ -101,8 +101,12 @@ static int ioprio_set(int which, int who, int ioprio) { return (int)syscall(SYS_
 
 static void log_impl(int log_level, const char *fmt, va_list ap)
 {
-    if (log_needs_syslog)
-        vsyslog(log_level, fmt, ap);
+    if (log_needs_syslog){
+        va_list ap_cpy; 
+        va_copy(ap_cpy, ap);
+        vsyslog(log_level, fmt, ap_cpy); 
+        va_end(ap_cpy); 
+    }
 
     flockfile(stdout);
 
@@ -1531,13 +1535,15 @@ static int handle_pre_systemd_suspend_notification(const char *action)
                     log_fatal("Couldn't remove /tmp/hibernation-setup-tool directory before proceeding");
                 }
 
-                log_info("/tmp/hibernation-setup-tool exists and isn't a directory! Removing it and trying again (try %d)", try);
+                else {
+                    log_info("/tmp/hibernation-setup-tool exists and isn't a directory! Removing it and trying again (try %d)", try);
 
-                if (!unlink("/tmp/hibernation-setup-tool"))
-                    continue;
+                    if (!unlink("/tmp/hibernation-setup-tool"))
+                        continue;
 
-                notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-                log_fatal("Couldn't remove the file: %s, giving up", strerror(errno));
+                    notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+                    log_fatal("Couldn't remove the file: %s, giving up", strerror(errno));
+                }
             }
 
             log_info("/tmp/hibernation-setup-tool couldn't be found but mkdir() told us it exists, trying again (try %d)", try);
@@ -1562,7 +1568,10 @@ static int handle_pre_systemd_suspend_notification(const char *action)
         close(fd);
 
         if (unlink(hibernate_lock_file_name) < 0) {
-            if (errno != EEXIST) {
+            // In the case we are running this script for the first time, 
+            // We will fail to remove the hibernate_lock_file_name, but
+            // that does not mean we should fail the program. 
+            if (!access(hibernate_lock_file_name, F_OK)) {
                 notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
                 log_fatal("Couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
             }
@@ -1626,13 +1635,16 @@ static int handle_post_systemd_suspend_notification(const char *action)
 
 static int handle_systemd_suspend_notification(const char *argv0, const char *when, const char *action)
 {
-    if (!getenv("SYSTEMD_SLEEP_ACTION")) {
-        log_fatal("These arguments can only be used when called from systemd");
-        return 1;
-    }
+    
+    // if (!getenv("SYSTEMD_SLEEP_ACTION")) {
+    //     log_fatal("These arguments can only be used when called from systemd");
+    //     return 1;
+    // }
 
     log_needs_prefix = true;
     log_needs_syslog = true;
+
+    log_info("We have hit gold: %s%s", when, action); 
 
     if (!strcmp(when, "pre"))
         return handle_pre_systemd_suspend_notification(action);
@@ -1800,7 +1812,7 @@ int main(int argc, char *argv[])
 
     if (is_hyperv()) {
         ensure_udev_rules_are_installed();
-        ensure_systemd_hooks_are_set_up();
+        // ensure_systemd_hooks_are_set_up();
     }
 
     log_info("Swap file for VM hibernation set up successfully");
