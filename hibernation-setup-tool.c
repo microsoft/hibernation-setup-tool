@@ -1648,15 +1648,105 @@ static int handle_systemd_suspend_notification(const char *argv0, const char *wh
     return 1;
 }
 
-static void link_hook(const char *src, const char *dest)
+static bool link_hook(const char *src, const char *dest)
 {
     if (link(src, dest) < 0) {
         if (errno != EEXIST)
-            return log_fatal("Couldn't link %s to %s: %s", src, dest, strerror(errno));
+            return false;
     }
 
     log_info("Notifying systemd of new hooks");
     spawn_and_wait("systemctl", 1, "daemon-reload");
+    return true;
+}
+
+static void optional_params(int argc, char **argv, char **action, char **when, char **dest_dir) {
+    if (argc > 2) {   
+        int opt;
+        while ((opt = getopt(argc, argv, "adw:")) != -1)
+        {
+            switch (opt)
+            {
+                case 'a':
+                    *action = optarg; 
+                    break; 
+                 
+                case 'w':
+                    *when = optarg; 
+                    break;
+
+                case 'd':
+                    *dest_dir = optarg;
+                    break;
+            }
+        }
+    }
+}
+
+static bool ensure_systemd_service_enabled(char *dest_dir){
+    const char *execfn = (const char *)getauxval(AT_EXECFN);
+    const char *usr_sbin_default = "/usr/sbin", *systemd_dir_default = "/lib/systemd/system";
+
+    const char *hibernation_tool_name = "hibernation-setup-tool";
+    const char *hibernation_service_name = "hibernation-setup-tool.service";
+
+    char usr_sbin_dir[PATH_MAX], systemd_dir[PATH_MAX];
+    char usr_sbin_path[PATH_MAX], systemd_path[PATH_MAX];
+
+    if (dest_dir) {
+        snprintf(usr_sbin_dir, sizeof(usr_sbin_dir), "%s%s", dest_dir, usr_sbin_default);
+        snprintf(systemd_dir, sizeof(systemd_dir), "%s%s", dest_dir, systemd_dir_default);
+    } else {
+        snprintf(usr_sbin_dir, sizeof(usr_sbin_dir), "%s", usr_sbin_default);
+        snprintf(systemd_dir, sizeof(systemd_dir), "%s", systemd_dir_default);
+    }
+
+    snprintf(usr_sbin_path, sizeof(usr_sbin_path), "%s%s%s", usr_sbin_dir, "/", hibernation_tool_name);
+    snprintf(systemd_path, sizeof(systemd_path), "%s%s%s", systemd_dir, "/", hibernation_service_name);
+
+    char *tool_mode_str = "0755", *service_mode_str = "0644";
+    int tool_mode = strtol(tool_mode_str, 0, 8), service_mode = strtol(service_mode_str, 0, 8);
+
+    if (!mkdir(usr_sbin_dir, 0755) && errno != EEXIST) {
+        log_info("Couldn't create location to store hibernation setup tool executable: %s", strerror(errno));
+        return false; 
+    }
+    
+    if (chmod(execfn, tool_mode) < 0){
+        log_info("Couldn't set permissions of %s to %s: %s", execfn, tool_mode_str, strerror(errno));
+        return false; 
+    } 
+
+    if (link(execfn, usr_sbin_path) < 0 && errno != EEXIST) {
+        log_info("Couldn't link %s to %s: %s", execfn, usr_sbin_path, strerror(errno));
+        return false;
+    }
+    
+    if(!mkdir(systemd_dir, 0755) && errno != EEXIST) { 
+        log_info("Couldn't create location to store hibernation setup tool service: %s", strerror(errno));
+        return false; 
+    }
+
+    char* last_slash = strrchr(execfn, '/');
+    if(last_slash == NULL)
+        return false;
+    *last_slash = '\0';
+
+    char service_path[PATH_MAX];
+    snprintf(service_path, sizeof(service_path), "%s%s%s", execfn, "/", hibernation_service_name);
+
+    if(chmod(service_path, service_mode) < 0){
+        log_info("Couldn't set permissions of %s to %s: %s", service_path, service_mode_str, strerror(errno));
+        return false; 
+    }
+
+    if(!link_hook(service_path, systemd_path)){
+        log_info("Couldn't link %s to %s: %s", service_path, systemd_path, strerror(errno));
+        return false;
+    }
+
+    spawn_and_wait("systemctl", 2, "enable", hibernation_service_name);
+    return true;
 }
 
 static void ensure_systemd_hooks_are_set_up(void)
@@ -1692,13 +1782,19 @@ static void ensure_systemd_hooks_are_set_up(void)
         return;
     }
 
-    if (execfn)
-        return link_hook(execfn, location_to_link);
+    if (execfn) {
+        if(!link_hook(execfn, location_to_link))
+            log_fatal("Couldn't link %s to %s: %s", execfn, location_to_link, strerror(errno));
+        return;
+    } 
 
     char self_path_buf[PATH_MAX];
     const char *self_path = readlink0("/proc/self/exe", self_path_buf);
-    if (self_path)
-        return link_hook(self_path, location_to_link);
+    if (self_path) {
+        if(!link_hook(self_path, location_to_link))
+            log_fatal("Couldn't link %s to %s: %s", self_path, location_to_link, strerror(errno));
+        return;
+    }
 
     return log_fatal("Both getauxval() and readlink(/proc/self/exe) failed. "
                      "Couldn't determine location of this executable to install "
@@ -1707,6 +1803,12 @@ static void ensure_systemd_hooks_are_set_up(void)
 
 int main(int argc, char *argv[])
 {
+    char *dest_dir = NULL;
+    char *when = NULL; 
+    char *action = NULL; 
+
+    optional_params(argc, argv, &dest_dir, &when, &action);
+    
     if (geteuid() != 0) {
         log_fatal("This program has to be executed with superuser privileges.");
         return 1;
@@ -1725,8 +1827,8 @@ int main(int argc, char *argv[])
     if (is_hyperv()) {
         /* We only handle these things here on Hyper-V VMs because it's the only
          * hypervisor we know that might need these kinds of notifications. */
-        if (argc == 3)
-            return handle_systemd_suspend_notification(argv[0], argv[1], argv[2]);
+        if (when && action)
+            return handle_systemd_suspend_notification(argv[0], when, action);
         if (is_cold_boot())
             notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
     }
@@ -1747,7 +1849,7 @@ int main(int argc, char *argv[])
         log_info("Swap file not found");
     }
 
-    if (swap && swap->capacity < needed_swap) {
+    if (swap && swap->capacity != needed_swap) {
         log_info("Swap file %s has capacity of %zu MB but needs %zu MB. Recreating. "
                  "System will run without a swap file while this is being set up.",
                  swap->path, swap->capacity / MEGA_BYTES, needed_swap / MEGA_BYTES);
@@ -1792,6 +1894,8 @@ int main(int argc, char *argv[])
 
     if (is_hyperv()) {
         ensure_udev_rules_are_installed();
+        if(!ensure_systemd_service_enabled(dest_dir))
+            log_info("Could not enable hibernation-setup-tool service");
         ensure_systemd_hooks_are_set_up();
     }
 
