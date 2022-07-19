@@ -1572,20 +1572,12 @@ static int handle_pre_systemd_suspend_notification(const char *action)
         close(fd);
 
         if (unlink(hibernate_lock_file_name) < 0) {
-            // In the case we are running this script for the first time, 
-            // We will fail to remove the hibernate_lock_file_name, but
-            // that does not mean we should fail the program. 
             if (!access(hibernate_lock_file_name, F_OK)) {
                 notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
                 log_fatal("Couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
             }
         }
-        // This throws a invalid-cross device link error, because we are creating a hard link 
-        // of a file on /tmp partition, tmpfs filesystem to /etc partition (on ubuntu ext4 filesystem)
-        // While hardlinks cannot work across filesystem boundaries, symbolic links can.
-        // This is because hard link knows nothing about what is on the other filesystem
-        // or where your data there is stored. 
-        // link(pattern, hibernate_lock_file_name) -> symlink(pattern, hibernate_lock_file_name)
+
         if (symlink(pattern, hibernate_lock_file_name) < 0) {
             notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
             log_fatal("Couldn't symlink %s to %s: %s", pattern, hibernate_lock_file_name, strerror(errno));
@@ -1645,16 +1637,8 @@ static int handle_post_systemd_suspend_notification(const char *action)
 
 static int handle_systemd_suspend_notification(const char *argv0, const char *when, const char *action)
 {
-    
-    // if (!getenv("SYSTEMD_SLEEP_ACTION")) {
-    //     log_fatal("These arguments can only be used when called from systemd");
-    //     return 1;
-    // }
-
     log_needs_prefix = true;
     log_needs_syslog = true;
-
-    log_info("We have hit gold: %s%s", when, action); 
 
     if (!strcmp(when, "pre"))
         return handle_pre_systemd_suspend_notification(action);
