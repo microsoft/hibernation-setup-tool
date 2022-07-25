@@ -1,0 +1,10 @@
+[Unit]
+Description=User resume actions
+After=hibernate.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/hibernation-setup-tool -w post -a hibernate
+
+[Install]
+WantedBy=hibernate.target

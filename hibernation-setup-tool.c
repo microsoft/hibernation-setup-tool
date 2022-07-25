@@ -101,8 +101,12 @@ static int ioprio_set(int which, int who, int ioprio) { return (int)syscall(SYS_
 
 static void log_impl(int log_level, const char *fmt, va_list ap)
 {
-    if (log_needs_syslog)
-        vsyslog(log_level, fmt, ap);
+    if (log_needs_syslog){
+        va_list ap_cpy; 
+        va_copy(ap_cpy, ap);
+        vsyslog(log_level, fmt, ap_cpy); 
+        va_end(ap_cpy); 
+    }
 
     flockfile(stdout);
 
@@ -1430,13 +1434,13 @@ static bool is_cold_boot(void)
     if (lock_file_path) {
         unlink(hibernate_lock_file_name);
 
-        if (access(lock_file_path, F_OK) < 0)
-            return true;
+        if (!access(lock_file_path, F_OK))
+            return false;
 
         unlink(lock_file_path);
     }
 
-    return false;
+    return true;
 }
 
 static void notify_vm_host(enum host_vm_notification notification)
@@ -1462,6 +1466,10 @@ static int recursive_rmdir_cb(const char *fpath, const struct stat *st, int type
         return unlink(fpath) == 0 ? FTW_CONTINUE : FTW_STOP;
 
     case FTW_D: /* directory */
+        return rmdir(fpath) == 0 ? FTW_CONTINUE : FTW_STOP;
+    
+    case FTW_DP:
+        log_info("Removing %s directory. Its subdirectories and subfiles have been visited.", fpath);
         return rmdir(fpath) == 0 ? FTW_CONTINUE : FTW_STOP;
 
     case FTW_SL:
@@ -1530,14 +1538,15 @@ static int handle_pre_systemd_suspend_notification(const char *action)
                     notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
                     log_fatal("Couldn't remove /tmp/hibernation-setup-tool directory before proceeding");
                 }
+                else {
+                    log_info("/tmp/hibernation-setup-tool exists and isn't a directory! Removing it and trying again (try %d)", try);
 
-                log_info("/tmp/hibernation-setup-tool exists and isn't a directory! Removing it and trying again (try %d)", try);
+                    if (!unlink("/tmp/hibernation-setup-tool"))
+                        continue;
 
-                if (!unlink("/tmp/hibernation-setup-tool"))
-                    continue;
-
-                notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-                log_fatal("Couldn't remove the file: %s, giving up", strerror(errno));
+                    notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+                    log_fatal("Couldn't remove the file: %s, giving up", strerror(errno));
+                }
             }
 
             log_info("/tmp/hibernation-setup-tool couldn't be found but mkdir() told us it exists, trying again (try %d)", try);
@@ -1562,14 +1571,14 @@ static int handle_pre_systemd_suspend_notification(const char *action)
         close(fd);
 
         if (unlink(hibernate_lock_file_name) < 0) {
-            if (errno != EEXIST) {
+            if (!access(hibernate_lock_file_name, F_OK)) {
                 notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
                 log_fatal("Couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
             }
         }
-        if (link(pattern, hibernate_lock_file_name) < 0) {
+        if (symlink(pattern, hibernate_lock_file_name) < 0) {
             notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-            log_fatal("Couldn't link %s to %s: %s", pattern, hibernate_lock_file_name, strerror(errno));
+            log_fatal("Couldn't symlink %s to %s: %s", pattern, hibernate_lock_file_name, strerror(errno));
         }
 
         notify_vm_host(HOST_VM_NOTIFY_HIBERNATING);
@@ -1582,7 +1591,7 @@ static int handle_pre_systemd_suspend_notification(const char *action)
     return 1;
 }
 
-static int handle_post_systemd_suspend_notification(const char *action)
+static int handle_post_systemd_suspend_notification(const char *action, bool cold_booted)
 {
     if (!strcmp(action, "hibernate")) {
         char real_path_buf[PATH_MAX];
@@ -1614,7 +1623,8 @@ static int handle_post_systemd_suspend_notification(const char *action)
         if (!recursive_rmdir("/tmp/hibernation-setup-tool"))
             log_info("While removing /tmp/hibernation-setup-tool: %s", strerror(errno));
 
-        notify_vm_host(HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION);
+        if (!cold_booted)
+            notify_vm_host(HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION);
         log_info("Post-hibernation hooks executed successfully");
 
         return 0;
@@ -1624,13 +1634,8 @@ static int handle_post_systemd_suspend_notification(const char *action)
     return 1;
 }
 
-static int handle_systemd_suspend_notification(const char *argv0, const char *when, const char *action)
+static int handle_systemd_suspend_notification(const char *argv0, const char *when, const char *action, bool cold_booted)
 {
-    if (!getenv("SYSTEMD_SLEEP_ACTION")) {
-        log_fatal("These arguments can only be used when called from systemd");
-        return 1;
-    }
-
     log_needs_prefix = true;
     log_needs_syslog = true;
 
@@ -1638,7 +1643,7 @@ static int handle_systemd_suspend_notification(const char *argv0, const char *wh
         return handle_pre_systemd_suspend_notification(action);
 
     if (!strcmp(when, "post"))
-        return handle_post_systemd_suspend_notification(action);
+        return handle_post_systemd_suspend_notification(action, cold_booted);
 
     log_fatal("Invalid usage: %s %s %s", argv0, when, action);
     return 1;
@@ -1656,38 +1661,77 @@ static bool link_hook(const char *src, const char *dest)
     return true;
 }
 
-static void optional_params(int argc, char **argv, char **action, char **when, char **dest_dir) {
-    if (argc > 2) {   
-        int opt;
-        while ((opt = getopt(argc, argv, "adw:")) != -1)
-        {
-            switch (opt)
-            {
-                case 'a':
-                    *action = optarg; 
-                    break; 
-                 
-                case 'w':
-                    *when = optarg; 
-                    break;
+static bool hard_link_file(const char *curr_file_path, char *target_dir, char *target_file){
+    // Setup file permissions
+    char *mode_str = "0755";
+    int mode = strtol(mode_str, 0, 8);
 
-                case 'd':
-                    *dest_dir = optarg;
-                    break;
-            }
-        }
+    // Construct target path for file
+    char target_path[PATH_MAX];
+    snprintf(target_path, sizeof(target_path), "%s%s%s", target_dir, "/", target_file);
+
+    // Set service file permissions
+    if (chmod(curr_file_path, mode) < 0){
+        log_info("Couldn't set permissions of %s to %s: %s", curr_file_path, mode_str, strerror(errno));
+        return false; 
     }
+
+    // Create/ensure target directory for file
+    if (!mkdir(target_dir, 0755) && errno != EEXIST) {
+        log_info("Couldn't create target directory %s to store target file %s: %s", target_dir, target_path, strerror(errno));
+        return false; 
+    }
+
+    // Move file to target location
+    if (link(curr_file_path, target_path) < 0 && errno != EEXIST) {
+        log_info("Couldn't link %s to %s: %s", curr_file_path, target_path, strerror(errno));
+        return false;
+    }
+
+    return true;
 }
 
-static bool ensure_systemd_service_enabled(char *dest_dir){
+static bool enable_systemd_service(const char *dir_parent, char *service_file_name, char *systemd_dir){
+    // Setup service file permissions
+    char *service_mode_str = "0644";
+    int service_mode = strtol(service_mode_str, 0, 8);
+
+    // Construct existing path to service file
+    char service_tool_path[PATH_MAX];
+    snprintf(service_tool_path, sizeof(service_tool_path), "%s%s%s", dir_parent, "/", service_file_name);
+    
+    // Construct target path for service file
+    char systemd_path[PATH_MAX]; 
+    snprintf(systemd_path, sizeof(systemd_path), "%s%s%s", systemd_dir, "/", service_file_name);
+
+    // Set service file permissions
+    if(chmod(service_tool_path, service_mode) < 0){
+        log_info("Couldn't set permissions of %s to %s: %s", service_tool_path, service_mode_str, strerror(errno));
+        return false; 
+    }
+
+    // Create/ensure target directory for service file
+    if(!mkdir(systemd_dir, 0755) && errno != EEXIST) { 
+        log_info("Couldn't create directory location %s to store service: %s", systemd_dir, strerror(errno));
+        return false; 
+    }
+
+    // Move service file to target location
+    if(!link_hook(service_tool_path, systemd_path)){
+        log_info("Couldn't link %s to %s: %s", service_tool_path, systemd_path, strerror(errno));
+        return false;
+    }
+
+    // Enable service
+    spawn_and_wait("systemctl", 2, "enable", service_file_name);
+    return true; 
+}
+
+static bool ensure_systemd_services_enabled(char *dest_dir){
     const char *execfn = (const char *)getauxval(AT_EXECFN);
     const char *usr_sbin_default = "/usr/sbin", *systemd_dir_default = "/lib/systemd/system";
 
-    const char *hibernation_tool_name = "hibernation-setup-tool";
-    const char *hibernation_service_name = "hibernation-setup-tool.service";
-
     char usr_sbin_dir[PATH_MAX], systemd_dir[PATH_MAX];
-    char usr_sbin_path[PATH_MAX], systemd_path[PATH_MAX];
 
     if (dest_dir) {
         snprintf(usr_sbin_dir, sizeof(usr_sbin_dir), "%s%s", dest_dir, usr_sbin_default);
@@ -1697,30 +1741,9 @@ static bool ensure_systemd_service_enabled(char *dest_dir){
         snprintf(systemd_dir, sizeof(systemd_dir), "%s", systemd_dir_default);
     }
 
-    snprintf(usr_sbin_path, sizeof(usr_sbin_path), "%s%s%s", usr_sbin_dir, "/", hibernation_tool_name);
-    snprintf(systemd_path, sizeof(systemd_path), "%s%s%s", systemd_dir, "/", hibernation_service_name);
-
-    char *tool_mode_str = "0755", *service_mode_str = "0644";
-    int tool_mode = strtol(tool_mode_str, 0, 8), service_mode = strtol(service_mode_str, 0, 8);
-
-    if (!mkdir(usr_sbin_dir, 0755) && errno != EEXIST) {
-        log_info("Couldn't create location to store hibernation setup tool executable: %s", strerror(errno));
-        return false; 
-    }
-    
-    if (chmod(execfn, tool_mode) < 0){
-        log_info("Couldn't set permissions of %s to %s: %s", execfn, tool_mode_str, strerror(errno));
-        return false; 
-    } 
-
-    if (link(execfn, usr_sbin_path) < 0 && errno != EEXIST) {
-        log_info("Couldn't link %s to %s: %s", execfn, usr_sbin_path, strerror(errno));
+    if (!hard_link_file(execfn, usr_sbin_dir, "hibernation-setup-tool")) {
+        log_info("Couldn't create hard link to %s to store hibernation tool executable: %s", usr_sbin_dir, strerror(errno));
         return false;
-    }
-    
-    if(!mkdir(systemd_dir, 0755) && errno != EEXIST) { 
-        log_info("Couldn't create location to store hibernation setup tool service: %s", strerror(errno));
-        return false; 
     }
 
     char* last_slash = strrchr(execfn, '/');
@@ -1728,32 +1751,36 @@ static bool ensure_systemd_service_enabled(char *dest_dir){
         return false;
     *last_slash = '\0';
 
-    char service_path[PATH_MAX];
-    snprintf(service_path, sizeof(service_path), "%s%s%s", execfn, "/", hibernation_service_name);
+    bool tool_service_enabled = false, pre_hook_service_enabled = false, post_hook_service_enabled = false; 
 
-    if(chmod(service_path, service_mode) < 0){
-        log_info("Couldn't set permissions of %s to %s: %s", service_path, service_mode_str, strerror(errno));
-        return false; 
+    tool_service_enabled = enable_systemd_service(execfn, "hibernation-setup-tool.service", systemd_dir);
+    if (!tool_service_enabled)
+        log_info("Couldn't enable hibernation tool service in %s: %s", systemd_dir, strerror(errno));
+
+    pre_hook_service_enabled = enable_systemd_service(execfn, "hibernate.service", systemd_dir);
+
+    if (pre_hook_service_enabled) {
+        post_hook_service_enabled = enable_systemd_service(execfn, "resume.service", systemd_dir);
+        if (!post_hook_service_enabled)
+            log_info("Couldn't enable post hook resume service in %s: %s", systemd_dir, strerror(errno));
+    }
+    else {
+        log_info("Couldn't enable pre hook hibernate service in %s: %s", systemd_dir, strerror(errno));
     }
 
-    if(!link_hook(service_path, systemd_path)){
-        log_info("Couldn't link %s to %s: %s", service_path, systemd_path, strerror(errno));
-        return false;
-    }
-
-    spawn_and_wait("systemctl", 2, "enable", hibernation_service_name);
-    return true;
+    return tool_service_enabled && pre_hook_service_enabled && post_hook_service_enabled;
 }
 
+/*
 static void ensure_systemd_hooks_are_set_up(void)
 {
-    /* Although the systemd manual cautions against dropping executables or scripts in
-     * this directory, the proposed D-Bus interface (Inhibitor) is not sufficient for
-     * our use case here: we're not trying to inhibit hibernation/suspend, we're just
-     * trying to know when this happened.
-     *
-     * More info: https://www.freedesktop.org/software/systemd/man/systemd-suspend.service.html
-     */
+    // Although the systemd manual cautions against dropping executables or scripts in
+    // this directory, the proposed D-Bus interface (Inhibitor) is not sufficient for
+    // our use case here: we're not trying to inhibit hibernation/suspend, we're just
+    // trying to know when this happened.
+    //
+    // More info: https://www.freedesktop.org/software/systemd/man/systemd-suspend.service.html
+    
     const char *execfn = (const char *)getauxval(AT_EXECFN);
     const char *location_to_link = "/usr/lib/systemd/systemd-sleep";
     struct stat st;
@@ -1796,6 +1823,7 @@ static void ensure_systemd_hooks_are_set_up(void)
                      "Couldn't determine location of this executable to install "
                      "systemd hooks");
 }
+*/
 
 int main(int argc, char *argv[])
 {
@@ -1803,7 +1831,28 @@ int main(int argc, char *argv[])
     char *when = NULL; 
     char *action = NULL; 
 
-    optional_params(argc, argv, &dest_dir, &when, &action);
+    if (argc > 2) { 
+        int opt;
+        while ((opt = getopt(argc, argv, "a:w:d:")) != -1)
+        {
+            switch (opt)
+            {
+                case 'a':
+                    action = optarg; 
+                    break; 
+                 
+                case 'w':
+                    when = optarg; 
+                    break;
+
+                case 'd':
+                    dest_dir = optarg;
+                    break;
+            }
+        }
+    }
+
+    // optional_params(argc, argv, &dest_dir, &when, &action);
     
     if (geteuid() != 0) {
         log_fatal("This program has to be executed with superuser privileges.");
@@ -1823,10 +1872,14 @@ int main(int argc, char *argv[])
     if (is_hyperv()) {
         /* We only handle these things here on Hyper-V VMs because it's the only
          * hypervisor we know that might need these kinds of notifications. */
+
+        bool cold_booted = false; 
+        if (!when || strcmp(when, "pre")) {
+            cold_booted = is_cold_boot(); 
+            if(cold_booted) notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
+        }
         if (when && action)
-            return handle_systemd_suspend_notification(argv[0], when, action);
-        if (is_cold_boot())
-            notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
+            return handle_systemd_suspend_notification(argv[0], when, action, cold_booted);
     }
 
     size_t total_ram = physical_memory();
@@ -1890,9 +1943,9 @@ int main(int argc, char *argv[])
 
     if (is_hyperv()) {
         ensure_udev_rules_are_installed();
-        if(!ensure_systemd_service_enabled(dest_dir))
-            log_info("Could not enable hibernation-setup-tool service");
-        ensure_systemd_hooks_are_set_up();
+        if(!ensure_systemd_services_enabled(dest_dir))
+            log_info("Could not enable systemd services");
+        // ensure_systemd_hooks_are_set_up();
     }
 
     log_info("Swap file for VM hibernation set up successfully");
