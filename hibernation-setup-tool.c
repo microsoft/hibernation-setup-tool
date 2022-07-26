@@ -1591,26 +1591,35 @@ static int handle_pre_systemd_suspend_notification(const char *action)
     return 1;
 }
 
-static int handle_post_systemd_suspend_notification(const char *action, bool cold_booted)
+static int handle_post_systemd_suspend_notification(const char *action)
 {
     if (!strcmp(action, "hibernate")) {
         char real_path_buf[PATH_MAX];
         const char *real_path;
 
         log_info("Running post-hibernate hooks");
-
+        bool cold_booted = false; 
         real_path = readlink0(hibernate_lock_file_name, real_path_buf);
         if (!real_path) {
             /* No need to notify host VM here: if link wasn't there, it's most likely that the
              * pre-hibernation hooks failed to create it in the first place.  Log for debugging
              * but keep going. */
             log_info("This is probably fine, but couldn't readlink(%s): %s", hibernate_lock_file_name, strerror(errno));
-        } else if (unlink(real_path) < 0) {
-            log_info("This is fine, but couldn't remove %s: %s", real_path, strerror(errno));
-        }
+            cold_booted = true; 
+            notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
+        } 
+        
         if (unlink(hibernate_lock_file_name) < 0)
             log_info("This is fine, but couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
 
+        if (!cold_booted && access(real_path, F_OK) < 0){
+            cold_booted = true; 
+            notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
+        }
+        
+        if (real_path && unlink(real_path) < 0)
+            log_info("This is fine, but couldn't remove %s: %s", real_path, strerror(errno));
+       
         if (umount2("/tmp/hibernation-setup-tool", UMOUNT_NOFOLLOW | MNT_DETACH) < 0) {
             /* EINVAL is returned if this isn't a mount point. This is normal if /tmp was already
              * a tmpfs and we didn't create and mounted this directory in the pre-hibernate hook.
@@ -1634,7 +1643,7 @@ static int handle_post_systemd_suspend_notification(const char *action, bool col
     return 1;
 }
 
-static int handle_systemd_suspend_notification(const char *argv0, const char *when, const char *action, bool cold_booted)
+static int handle_systemd_suspend_notification(const char *argv0, const char *when, const char *action)
 {
     log_needs_prefix = true;
     log_needs_syslog = true;
@@ -1643,7 +1652,7 @@ static int handle_systemd_suspend_notification(const char *argv0, const char *wh
         return handle_pre_systemd_suspend_notification(action);
 
     if (!strcmp(when, "post"))
-        return handle_post_systemd_suspend_notification(action, cold_booted);
+        return handle_post_systemd_suspend_notification(action);
 
     log_fatal("Invalid usage: %s %s %s", argv0, when, action);
     return 1;
@@ -1771,60 +1780,6 @@ static bool ensure_systemd_services_enabled(char *dest_dir){
     return tool_service_enabled && pre_hook_service_enabled && post_hook_service_enabled;
 }
 
-/*
-static void ensure_systemd_hooks_are_set_up(void)
-{
-    // Although the systemd manual cautions against dropping executables or scripts in
-    // this directory, the proposed D-Bus interface (Inhibitor) is not sufficient for
-    // our use case here: we're not trying to inhibit hibernation/suspend, we're just
-    // trying to know when this happened.
-    //
-    // More info: https://www.freedesktop.org/software/systemd/man/systemd-suspend.service.html
-    
-    const char *execfn = (const char *)getauxval(AT_EXECFN);
-    const char *location_to_link = "/usr/lib/systemd/systemd-sleep";
-    struct stat st;
-    int r;
-
-    r = stat(location_to_link, &st);
-    if (r < 0 && errno == ENOENT) {
-        log_info("Attempting to create hibernate/resume hook directory: %s", location_to_link);
-        if (mkdir(location_to_link, 0755) < 0) {
-            log_info("Couldn't create %s: %s. VM host won't receive suspend/resume notifications.", location_to_link, strerror(errno));
-            return;
-        }
-    } else if (r < 0) {
-        log_info("Couldn't stat(%s): %s. We need to drop a file there to allow "
-                 "the VM host to be notified of hibernation/resumes.",
-                 location_to_link, strerror(errno));
-        return;
-    } else if (!S_ISDIR(st.st_mode)) {
-        log_info("%s isn't a directory, can't drop a link to the agent there to "
-                 " notify host of hibernation/resume",
-                 location_to_link);
-        return;
-    }
-
-    if (execfn) {
-        if(!link_hook(execfn, location_to_link))
-            log_fatal("Couldn't link %s to %s: %s", execfn, location_to_link, strerror(errno));
-        return;
-    } 
-
-    char self_path_buf[PATH_MAX];
-    const char *self_path = readlink0("/proc/self/exe", self_path_buf);
-    if (self_path) {
-        if(!link_hook(self_path, location_to_link))
-            log_fatal("Couldn't link %s to %s: %s", self_path, location_to_link, strerror(errno));
-        return;
-    }
-
-    return log_fatal("Both getauxval() and readlink(/proc/self/exe) failed. "
-                     "Couldn't determine location of this executable to install "
-                     "systemd hooks");
-}
-*/
-
 int main(int argc, char *argv[])
 {
     char *dest_dir = NULL;
@@ -1851,8 +1806,6 @@ int main(int argc, char *argv[])
             }
         }
     }
-
-    // optional_params(argc, argv, &dest_dir, &when, &action);
     
     if (geteuid() != 0) {
         log_fatal("This program has to be executed with superuser privileges.");
@@ -1871,15 +1824,12 @@ int main(int argc, char *argv[])
 
     if (is_hyperv()) {
         /* We only handle these things here on Hyper-V VMs because it's the only
-         * hypervisor we know that might need these kinds of notifications. */
-
-        bool cold_booted = false; 
-        if (!when || strcmp(when, "pre")) {
-            cold_booted = is_cold_boot(); 
-            if(cold_booted) notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
-        }
+         * hypervisor we know that might need these kinds of notifications. */ 
         if (when && action)
-            return handle_systemd_suspend_notification(argv[0], when, action, cold_booted);
+            return handle_systemd_suspend_notification(argv[0], when, action);
+         if (is_cold_boot()) {
+            notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
+        }
     }
 
     size_t total_ram = physical_memory();
