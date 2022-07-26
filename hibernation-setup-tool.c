@@ -1894,7 +1894,6 @@ int main(int argc, char *argv[])
         ensure_udev_rules_are_installed();
         if(!ensure_systemd_services_enabled(dest_dir))
             log_info("Could not enable systemd services");
-        // ensure_systemd_hooks_are_set_up();
     }
 
     log_info("Swap file for VM hibernation set up successfully");
