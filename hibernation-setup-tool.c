@@ -1538,15 +1538,14 @@ static int handle_pre_systemd_suspend_notification(const char *action)
                     notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
                     log_fatal("Couldn't remove /tmp/hibernation-setup-tool directory before proceeding");
                 }
-                else {
-                    log_info("/tmp/hibernation-setup-tool exists and isn't a directory! Removing it and trying again (try %d)", try);
 
-                    if (!unlink("/tmp/hibernation-setup-tool"))
-                        continue;
+                log_info("/tmp/hibernation-setup-tool exists and isn't a directory! Removing it and trying again (try %d)", try);
 
-                    notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-                    log_fatal("Couldn't remove the file: %s, giving up", strerror(errno));
-                }
+                if (!unlink("/tmp/hibernation-setup-tool"))
+                    continue;
+
+                notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
+                log_fatal("Couldn't remove the file: %s, giving up", strerror(errno));
             }
 
             log_info("/tmp/hibernation-setup-tool couldn't be found but mkdir() told us it exists, trying again (try %d)", try);
