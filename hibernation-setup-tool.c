@@ -1827,9 +1827,8 @@ int main(int argc, char *argv[])
          * hypervisor we know that might need these kinds of notifications. */ 
         if (when && action)
             return handle_systemd_suspend_notification(argv[0], when, action);
-         if (is_cold_boot()) {
+         if (is_cold_boot())
             notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
-        }
     }
 
     size_t total_ram = physical_memory();
