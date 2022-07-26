@@ -1661,64 +1661,6 @@ static void link_hook(const char *src, const char *dest)
     spawn_and_wait("systemctl", 1, "daemon-reload");
 }
 
-static void ensure_systemd_hooks_are_set_up(void)
-{
-    /* Although the systemd manual cautions against dropping executables or scripts in
-     * this directory, the proposed D-Bus interface (Inhibitor) is not sufficient for
-     * our use case here: we're not trying to inhibit hibernation/suspend, we're just
-     * trying to know when this happened.
-     *
-     * More info: https://www.freedesktop.org/software/systemd/man/systemd-suspend.service.html
-     */
-    const char *execfn = (const char *)getauxval(AT_EXECFN);
-    const char *location_to_link_dir = "/usr/lib/systemd/systemd-sleep";
-
-    struct stat st;
-    int r;
-
-    r = stat(location_to_link_dir, &st);
-    if (r < 0 && errno == ENOENT) {
-        log_info("Attempting to create hibernate/resume hook directory: %s", location_to_link_dir);
-        if (mkdir(location_to_link_dir, 0755) < 0) {
-            log_info("Couldn't create %s: %s. VM host won't receive suspend/resume notifications.", location_to_link_dir, strerror(errno));
-            return;
-        }
-    } else if (r < 0) {
-        log_info("Couldn't stat(%s): %s. We need to drop a file there to allow "
-                 "the VM host to be notified of hibernation/resumes.",
-                 location_to_link_dir, strerror(errno));
-        return;
-    } else if (!S_ISDIR(st.st_mode)) {
-        log_info("%s isn't a directory, can't drop a link to the agent there to "
-                 " notify host of hibernation/resume",
-                 location_to_link_dir);
-        return;
-    }
-
-    if (execfn) {
-        char location_to_link_file[PATH_MAX];
-        char *execfn_file_name = strrchr(execfn, '/') + 1; 
-
-        snprintf(location_to_link_file, sizeof(location_to_link_file), "%s%s%s", location_to_link_dir, "/", execfn_file_name);
-        return link_hook(execfn, location_to_link_file);
-    }
-
-    char self_path_buf[PATH_MAX];
-    const char *self_path = readlink0("/proc/self/exe", self_path_buf);
-
-    if (self_path){
-        char location_to_link_file[PATH_MAX]; 
-        char *exe_file_name = strrchr(self_path, '/') + 1;
-
-        snprintf(location_to_link_file, sizeof(location_to_link_file), "%s%s%s", location_to_link_dir, "/", exe_file_name);
-        return link_hook(self_path, location_to_link_file);
-    }
-
-    return log_fatal("Both getauxval() and readlink(/proc/self/exe) failed. "
-                     "Couldn't determine location of this executable to install "
-                     "systemd hooks");
-}
-
 int main(int argc, char *argv[])
 {
     if (geteuid() != 0) {
@@ -1806,7 +1748,6 @@ int main(int argc, char *argv[])
 
     if (is_hyperv()) {
         ensure_udev_rules_are_installed();
-        // ensure_systemd_hooks_are_set_up();
     }
 
     log_info("Swap file for VM hibernation set up successfully");
