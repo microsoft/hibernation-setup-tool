@@ -70,15 +70,15 @@
 
 static const char swap_file_name[] = "/hibfile.sys";
 
-/* Prefix is needed when not running as a service.  Output from this the tool is fed to the
- * system log while systemd is processing the request to hibernate.  This makes it easier to
- * grep for hibernation-setup-tool there too in case of a failure. */
-static bool log_needs_prefix = false;
+/* Prefixes are needed when running services. This makes it easier to grep for
+ * code run via hibernate, resume hooks and hibernation tool. */
+static bool log_needs_tool_prefix = false;
+static bool log_needs_pre_hook_prefix = false;
+static bool log_needs_post_hook_prefix = false;
 
-/* We don't always want to spam syslog: spamming stdout is fine as this is supposed to be
- * executed as a daemon in systemd and this output will be stored in the journal.  However,
- * this agent can run as a hook and we want to make sure that the messages there are logged
- * somewhere. */
+/* We don't always want to spam syslog: spamming stdout is fine as this tool
+ * and its hooks are supposed to be executed as daemons in systemd and their
+ * output will be stored in their journal files. */
 static bool log_needs_syslog = false;
 
 /* This is a link pointing to a file in a tmpfs filesystem and is mostly used to detect
@@ -110,8 +110,12 @@ static void log_impl(int log_level, const char *fmt, va_list ap)
 
     flockfile(stdout);
 
-    if (log_needs_prefix)
+    if (log_needs_tool_prefix)
         printf("hibernation-setup-tool: ");
+    else if (log_needs_pre_hook_prefix)
+        printf("hibernate-hook: ");
+    else if (log_needs_post_hook_prefix)
+        printf("resume-hook: ");
 
     if (log_level == LOG_INFO)
         printf("INFO: ");
@@ -1498,6 +1502,7 @@ static bool recursive_rmdir(const char *path) { return nftw(path, recursive_rmdi
 
 static int handle_pre_systemd_suspend_notification(const char *action)
 {
+    log_needs_pre_hook_prefix = true;
     if (!strcmp(action, "hibernate")) {
         log_info("Running pre-hibernate hooks");
 
@@ -1592,6 +1597,7 @@ static int handle_pre_systemd_suspend_notification(const char *action)
 
 static int handle_post_systemd_suspend_notification(const char *action)
 {
+    log_needs_post_hook_prefix = true;
     if (!strcmp(action, "hibernate")) {
         char real_path_buf[PATH_MAX];
         const char *real_path;
@@ -1644,8 +1650,8 @@ static int handle_post_systemd_suspend_notification(const char *action)
 
 static int handle_systemd_suspend_notification(const char *argv0, const char *when, const char *action)
 {
-    log_needs_prefix = true;
-    log_needs_syslog = true;
+    // Uncomment to view hook logs in syslog
+    // log_needs_syslog = true;
 
     if (!strcmp(when, "pre"))
         return handle_pre_systemd_suspend_notification(action);
@@ -1823,13 +1829,15 @@ int main(int argc, char *argv[])
 
     if (is_hyperv()) {
         /* We only handle these things here on Hyper-V VMs because it's the only
-         * hypervisor we know that might need these kinds of notifications. */ 
+         * hypervisor we know that might need these kinds of notifications. */
         if (when && action)
             return handle_systemd_suspend_notification(argv[0], when, action);
-         if (is_cold_boot())
+        log_needs_tool_prefix = true;
+        if (is_cold_boot())
             notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
     }
 
+    log_needs_tool_prefix = true;
     size_t total_ram = physical_memory();
     if (!total_ram)
         log_fatal("Could not obtain memory total from this computer");
