@@ -1678,7 +1678,7 @@ static bool hard_link_file(const char *curr_file_path, char *target_dir, char *t
     char target_path[PATH_MAX];
     snprintf(target_path, sizeof(target_path), "%s%s%s", target_dir, "/", target_file);
 
-    // Set service file permissions
+    // Set file permissions
     if (chmod(curr_file_path, mode) < 0){
         log_info("Couldn't set permissions of %s to %s: %s", curr_file_path, mode_str, strerror(errno));
         return false; 
