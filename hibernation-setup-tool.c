@@ -1707,6 +1707,31 @@ static void ensure_systemd_hooks_are_set_up(void)
 
 int main(int argc, char *argv[])
 {
+    char *dest_dir = NULL;
+    char *when = NULL; 
+    char *action = NULL; 
+
+    if (argc > 2) { 
+        int opt;
+        while ((opt = getopt(argc, argv, "a:w:d:")) != -1)
+        {
+            switch (opt)
+            {
+                case 'a':
+                    action = optarg; 
+                    break; 
+
+                case 'w':
+                    when = optarg; 
+                    break;
+
+                case 'd':
+                    dest_dir = optarg;
+                    break;
+            }
+        }
+    }
+
     if (geteuid() != 0) {
         log_fatal("This program has to be executed with superuser privileges.");
         return 1;
@@ -1725,8 +1750,8 @@ int main(int argc, char *argv[])
     if (is_hyperv()) {
         /* We only handle these things here on Hyper-V VMs because it's the only
          * hypervisor we know that might need these kinds of notifications. */
-        if (argc == 3)
-            return handle_systemd_suspend_notification(argv[0], argv[1], argv[2]);
+        if (when && action)
+            return handle_systemd_suspend_notification(argv[0], when, action);
         if (is_cold_boot())
             notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
     }
