@@ -1747,7 +1747,7 @@ int main(int argc, char *argv[])
         log_info("Swap file not found");
     }
 
-    if (swap && swap->capacity < needed_swap) {
+    if (swap && swap->capacity != needed_swap) {
         log_info("Swap file %s has capacity of %zu MB but needs %zu MB. Recreating. "
                  "System will run without a swap file while this is being set up.",
                  swap->path, swap->capacity / MEGA_BYTES, needed_swap / MEGA_BYTES);
