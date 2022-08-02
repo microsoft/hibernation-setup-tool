@@ -1494,7 +1494,7 @@ static int recursive_rmdir_cb(const char *fpath, const struct stat *st, int type
     }
 }
 
-static bool recursive_rmdir(const char *path) { return nftw(path, recursive_rmdir_cb, 16, FTW_DEPTH | FTW_PHYS | FTW_ACTIONRETVAL) != FTW_STOP; }
+static bool recursive_rmdir(const char *path) { return nftw(path, recursive_rmdir_cb, 16, FTW_DEPTH | FTW_PHYS | FTW_ACTIONRETVAL) == 0; }
 
 static int handle_pre_systemd_suspend_notification(const char *action)
 {
