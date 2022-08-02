@@ -121,6 +121,8 @@ static void log_impl(int log_level, const char *fmt, va_list ap)
         printf("INFO: ");
     else if (log_level == LOG_ERR)
         printf("ERROR: ");
+    else if (log_level == LOG_NOTICE)
+        printf("NOTICE: ");
     vprintf(fmt, ap);
     printf("\n");
 
@@ -133,6 +135,15 @@ __attribute__((format(printf, 1, 2))) static void log_info(const char *fmt, ...)
 
     va_start(ap, fmt);
     log_impl(LOG_INFO, fmt, ap);
+    va_end(ap);
+}
+
+__attribute__((format(printf, 1, 2))) static void log_notice(const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    log_impl(LOG_NOTICE, fmt, ap);
     va_end(ap);
 }
 
@@ -1456,7 +1467,7 @@ static void notify_vm_host(enum host_vm_notification notification)
         [HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED] = "pre-hibernation-failed",
     };
 
-    log_info("STATE: Changed hibernation state to: %s", types[notification]);
+    log_notice("Changed hibernation state to: %s\n", types[notification]);
 }
 
 static int recursive_rmdir_cb(const char *fpath, const struct stat *st, int typeflag, struct FTW *ftwbuf)
@@ -1581,8 +1592,9 @@ static int handle_pre_systemd_suspend_notification(const char *action)
             }
         }
         if (symlink(pattern, hibernate_lock_file_name) < 0) {
+            int symlink_errno = errno; 
             notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-            log_fatal("Couldn't symlink %s to %s: %s", pattern, hibernate_lock_file_name, strerror(errno));
+            log_fatal("Couldn't symlink %s to %s: %s", pattern, hibernate_lock_file_name, strerror(symlink_errno));
         }
 
         notify_vm_host(HOST_VM_NOTIFY_HIBERNATING);
