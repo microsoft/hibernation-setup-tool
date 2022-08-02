@@ -101,7 +101,7 @@ static int ioprio_set(int which, int who, int ioprio) { return (int)syscall(SYS_
 
 static void log_impl(int log_level, const char *fmt, va_list ap)
 {
-    if (log_needs_syslog){
+    if (log_needs_syslog) {
         va_list ap_cpy; 
         va_copy(ap_cpy, ap);
         vsyslog(log_level, fmt, ap_cpy); 
@@ -1107,7 +1107,7 @@ static struct resume_swap_area get_swap_area(const struct swap_file *swap)
 
     log_info("Swap file %s is at device %ld, offset %d", swap->path, st.st_dev, offset);
 
-    return (struct resume_swap_area){
+    return (struct resume_swap_area) {
         .offset = offset,
         .dev = st.st_dev,
     };
@@ -1629,7 +1629,7 @@ static int handle_post_systemd_suspend_notification(const char *action)
         if (unlink(hibernate_lock_file_name) < 0)
             log_info("This is fine, but couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
 
-        if (!cold_booted && access(real_path, F_OK) < 0){
+        if (!cold_booted && access(real_path, F_OK) < 0) {
             cold_booted = true; 
             notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
         }
@@ -1687,7 +1687,7 @@ static bool link_hook(const char *src, const char *dest)
     return true;
 }
 
-static bool hard_link_file(const char *curr_file_path, char *target_dir, char *target_file){
+static bool hard_link_file(const char *curr_file_path, char *target_dir, char *target_file) {
     // Setup file permissions
     char *mode_str = "0755";
     int mode = strtol(mode_str, 0, 8);
@@ -1697,7 +1697,7 @@ static bool hard_link_file(const char *curr_file_path, char *target_dir, char *t
     snprintf(target_path, sizeof(target_path), "%s%s%s", target_dir, "/", target_file);
 
     // Set file permissions
-    if (chmod(curr_file_path, mode) < 0){
+    if (chmod(curr_file_path, mode) < 0) {
         log_info("Couldn't set permissions of %s to %s: %s", curr_file_path, mode_str, strerror(errno));
         return false; 
     }
@@ -1717,7 +1717,7 @@ static bool hard_link_file(const char *curr_file_path, char *target_dir, char *t
     return true;
 }
 
-static bool enable_systemd_service(const char *dir_parent, char *service_file_name, char *systemd_dir){
+static bool enable_systemd_service(const char *dir_parent, char *service_file_name, char *systemd_dir) {
     // Setup service file permissions
     char *service_mode_str = "0644";
     int service_mode = strtol(service_mode_str, 0, 8);
@@ -1731,7 +1731,7 @@ static bool enable_systemd_service(const char *dir_parent, char *service_file_na
     snprintf(systemd_path, sizeof(systemd_path), "%s%s%s", systemd_dir, "/", service_file_name);
 
     // Set service file permissions
-    if(chmod(service_tool_path, service_mode) < 0){
+    if(chmod(service_tool_path, service_mode) < 0) {
         log_info("Couldn't set permissions of %s to %s: %s", service_tool_path, service_mode_str, strerror(errno));
         return false; 
     }
@@ -1743,7 +1743,7 @@ static bool enable_systemd_service(const char *dir_parent, char *service_file_na
     }
 
     // Move service file to target location
-    if(!link_hook(service_tool_path, systemd_path)){
+    if(!link_hook(service_tool_path, systemd_path)) {
         log_info("Couldn't link %s to %s: %s", service_tool_path, systemd_path, strerror(errno));
         return false;
     }
@@ -1753,7 +1753,7 @@ static bool enable_systemd_service(const char *dir_parent, char *service_file_na
     return true; 
 }
 
-static bool ensure_systemd_services_enabled(char *dest_dir){
+static bool ensure_systemd_services_enabled(char *dest_dir) {
     const char *execfn = (const char *)getauxval(AT_EXECFN);
     const char *usr_sbin_default = "/usr/sbin", *systemd_dir_default = "/lib/systemd/system";
 
