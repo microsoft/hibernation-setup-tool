@@ -1577,8 +1577,9 @@ static int handle_pre_systemd_suspend_notification(const char *action)
         }
 
         if (symlink(pattern, hibernate_lock_file_name) < 0) {
+            int symlink_errno = errno;
             notify_vm_host(HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED);
-            log_fatal("Couldn't symlink %s to %s: %s", pattern, hibernate_lock_file_name, strerror(errno));
+            log_fatal("Couldn't symlink %s to %s: %s", pattern, hibernate_lock_file_name, strerror(symlink_errno));
         }
 
         notify_vm_host(HOST_VM_NOTIFY_HIBERNATING);
