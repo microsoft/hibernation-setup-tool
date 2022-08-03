@@ -101,8 +101,12 @@ static int ioprio_set(int which, int who, int ioprio) { return (int)syscall(SYS_
 
 static void log_impl(int log_level, const char *fmt, va_list ap)
 {
-    if (log_needs_syslog)
-        vsyslog(log_level, fmt, ap);
+    if (log_needs_syslog){
+        va_list ap_cpy; 
+        va_copy(ap_cpy, ap);
+        vsyslog(log_level, fmt, ap_cpy); 
+        va_end(ap_cpy); 
+    }
 
     flockfile(stdout);
 
@@ -1743,7 +1747,7 @@ int main(int argc, char *argv[])
         log_info("Swap file not found");
     }
 
-    if (swap && swap->capacity < needed_swap) {
+    if (swap && swap->capacity != needed_swap) {
         log_info("Swap file %s has capacity of %zu MB but needs %zu MB. Recreating. "
                  "System will run without a swap file while this is being set up.",
                  swap->path, swap->capacity / MEGA_BYTES, needed_swap / MEGA_BYTES);
