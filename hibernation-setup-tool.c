@@ -1434,7 +1434,7 @@ static bool is_cold_boot(void)
     if (lock_file_path) {
         unlink(hibernate_lock_file_name);
 
-        if (access(lock_file_path, F_OK) < 0)
+        if (!access(lock_file_path, F_OK))
             return false;
 
         unlink(lock_file_path);
