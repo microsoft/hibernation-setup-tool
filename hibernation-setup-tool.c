@@ -89,6 +89,7 @@ enum host_vm_notification {
     HOST_VM_NOTIFY_COLD_BOOT,                /* Sent every time system cold boots */
     HOST_VM_NOTIFY_HIBERNATING,              /* Sent right before hibernation */
     HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION, /* Sent right after hibernation */
+    HOST_VM_NOTIFY_FAILED_RESUME_FROM_HIBERNATION, /* Sent right after failed hibernation */
     HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED,   /* Sent on errors when hibernating or resuming */
 };
 
@@ -1464,6 +1465,7 @@ static void notify_vm_host(enum host_vm_notification notification)
         [HOST_VM_NOTIFY_COLD_BOOT] = "cold-boot",
         [HOST_VM_NOTIFY_HIBERNATING] = "hibernating",
         [HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION] = "resumed-from-hibernation",
+        [HOST_VM_NOTIFY_FAILED_RESUME_FROM_HIBERNATION] = "cold-booted: failed-resume-from-hibernation",
         [HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED] = "pre-hibernation-failed",
     };
 
@@ -1623,7 +1625,7 @@ static int handle_post_systemd_suspend_notification(const char *action)
              * but keep going. */
             log_info("This is probably fine, but couldn't readlink(%s): %s", hibernate_lock_file_name, strerror(errno));
             cold_booted = true; 
-            notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
+            notify_vm_host(HOST_VM_NOTIFY_FAILED_RESUME_FROM_HIBERNATION);
         } 
         
         if (unlink(hibernate_lock_file_name) < 0)
@@ -1631,7 +1633,7 @@ static int handle_post_systemd_suspend_notification(const char *action)
 
         if (!cold_booted && access(real_path, F_OK) < 0) {
             cold_booted = true; 
-            notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
+            notify_vm_host(HOST_VM_NOTIFY_FAILED_RESUME_FROM_HIBERNATION);
         }
         
         if (real_path && unlink(real_path) < 0)
