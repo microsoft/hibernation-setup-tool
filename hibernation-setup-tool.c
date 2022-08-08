@@ -1719,7 +1719,7 @@ static bool hard_link_file(const char *curr_file_path, char *target_dir, char *t
     return true;
 }
 
-static bool enable_systemd_service(const char *dir_parent, char *service_file_name, char *systemd_dir) {
+static bool link_and_enable_systemd_service(const char *dir_parent, char *service_file_name, char *systemd_dir) {
     // Setup service file permissions
     char *service_mode_str = "0644";
     int service_mode = strtol(service_mode_str, 0, 8);
@@ -1781,14 +1781,14 @@ static bool ensure_systemd_services_enabled(char *dest_dir) {
 
     bool tool_service_enabled = false, pre_hook_service_enabled = false, post_hook_service_enabled = false; 
 
-    tool_service_enabled = enable_systemd_service(execfn, "hibernation-setup-tool.service", systemd_dir);
+    tool_service_enabled = link_and_enable_systemd_service(execfn, "hibernation-setup-tool.service", systemd_dir);
     if (!tool_service_enabled)
         log_info("Couldn't enable hibernation tool service in %s: %s", systemd_dir, strerror(errno));
 
-    pre_hook_service_enabled = enable_systemd_service(execfn, "hibernate.service", systemd_dir);
+    pre_hook_service_enabled = link_and_enable_systemd_service(execfn, "hibernate.service", systemd_dir);
 
     if (pre_hook_service_enabled) {
-        post_hook_service_enabled = enable_systemd_service(execfn, "resume.service", systemd_dir);
+        post_hook_service_enabled = link_and_enable_systemd_service(execfn, "resume.service", systemd_dir);
         if (!post_hook_service_enabled)
             log_info("Couldn't enable post hook resume service in %s: %s", systemd_dir, strerror(errno));
     }
