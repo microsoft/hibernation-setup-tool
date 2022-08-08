@@ -1814,11 +1814,7 @@ int main(int argc, char *argv[])
                 case 'a':
                     action = optarg; 
                     break; 
-<<<<<<< HEAD
                  
-=======
-
->>>>>>> 1d54ac485e05d8338f8307aa1a107daa3b6ebb22
                 case 'w':
                     when = optarg; 
                     break;
@@ -1829,11 +1825,7 @@ int main(int argc, char *argv[])
             }
         }
     }
-<<<<<<< HEAD
     
-=======
-
->>>>>>> 1d54ac485e05d8338f8307aa1a107daa3b6ebb22
     if (geteuid() != 0) {
         log_fatal("This program has to be executed with superuser privileges.");
         return 1;
@@ -1854,10 +1846,7 @@ int main(int argc, char *argv[])
          * hypervisor we know that might need these kinds of notifications. */
         if (when && action)
             return handle_systemd_suspend_notification(argv[0], when, action);
-<<<<<<< HEAD
         log_needs_tool_prefix = true;
-=======
->>>>>>> 1d54ac485e05d8338f8307aa1a107daa3b6ebb22
         if (is_cold_boot())
             notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
     }
