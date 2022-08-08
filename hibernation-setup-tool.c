@@ -1618,7 +1618,7 @@ static int handle_post_systemd_suspend_notification(const char *action)
         const char *real_path;
 
         log_info("Running post-hibernate hooks");
-        bool cold_booted = false; 
+        bool cold_booted = false;
         real_path = readlink0(hibernate_lock_file_name, real_path_buf);
         if (!real_path) {
             /* No need to notify host VM here: if link wasn't there, it's most likely that the
@@ -1815,7 +1815,7 @@ int main(int argc, char *argv[])
                 case 'a':
                     action = optarg; 
                     break; 
-                 
+
                 case 'w':
                     when = optarg; 
                     break;
@@ -1826,7 +1826,7 @@ int main(int argc, char *argv[])
             }
         }
     }
-    
+
     if (geteuid() != 0) {
         log_fatal("This program has to be executed with superuser privileges.");
         return 1;
