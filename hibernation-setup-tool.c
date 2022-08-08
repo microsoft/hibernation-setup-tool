@@ -1767,8 +1767,8 @@ int main(int argc, char *argv[])
     if (is_hyperv()) {
         /* We only handle these things here on Hyper-V VMs because it's the only
          * hypervisor we know that might need these kinds of notifications. */
-        if (argc == 3)
-            return handle_systemd_suspend_notification(argv[0], argv[1], argv[2]);
+        if (when && action)
+            return handle_systemd_suspend_notification(argv[0], when, action);
         log_needs_tool_prefix = true;
         if (is_cold_boot())
             notify_vm_host(HOST_VM_NOTIFY_COLD_BOOT);
