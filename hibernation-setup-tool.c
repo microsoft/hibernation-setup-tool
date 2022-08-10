@@ -1780,6 +1780,14 @@ static bool ensure_systemd_services_enabled(char *dest_dir) {
         return false;
     *last_slash = '\0';
 
+    // If tool is being executed by the systemd service
+    // tool is in /usr/sbin. In which case services are
+    // already setup and we do not want to link and enable them again.
+    if(!strncmp(execfn, usr_sbin_default, sizeof("/usr/sbin") - 1)) {
+        log_info("Services Enabled. Service running tool in folder: %s", execfn);
+        return true;
+    }
+
     bool tool_service_enabled = false, pre_hook_service_enabled = false, post_hook_service_enabled = false; 
 
     tool_service_enabled = link_and_enable_systemd_service(execfn, "hibernation-setup-tool.service", systemd_dir);
