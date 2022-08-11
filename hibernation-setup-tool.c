@@ -960,6 +960,9 @@ static void spawn_and_wait(const char *program, int n_args, ...)
 
 static void perform_fs_specific_checks(const char *path)
 {
+    /* Not performing defragmentation for xfs file systems as xfs_fsr process is taking time for SKUs with larger RAM.
+       While it is good to have optimization, not ideal to have performance hit on the tool */
+
     if (is_file_on_fs(path, EXT4_SUPER_MAGIC) && is_exec_in_path("e4defrag")) {
         try_spawn_and_wait("e4defrag", 1, path);
         return;
