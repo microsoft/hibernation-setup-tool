@@ -979,11 +979,6 @@ static void perform_fs_specific_checks(const char *path)
             try_spawn_and_wait("btrfs", 3, "filesystem", "defragment", path);
         return;
     }
-
-    if (is_file_on_fs(path, XFS_SUPER_MAGIC) && is_exec_in_path("xfs_fsr")) {
-        try_spawn_and_wait("xfs_fsr", 2, "-v", path);
-        return;
-    }
 }
 
 bool is_kernel_version_at_least(const char *version)
