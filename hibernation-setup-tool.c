@@ -1465,7 +1465,7 @@ static void notify_vm_host(enum host_vm_notification notification)
         [HOST_VM_NOTIFY_COLD_BOOT] = "cold-boot",
         [HOST_VM_NOTIFY_HIBERNATING] = "hibernating",
         [HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION] = "resumed-from-hibernation",
-        [HOST_VM_NOTIFY_FAILED_RESUME_FROM_HIBERNATION] = "cold-booted: failed-resume-from-hibernation",
+        [HOST_VM_NOTIFY_FAILED_RESUME_FROM_HIBERNATION] = "failed-resume-from-hibernation",
         [HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED] = "pre-hibernation-failed",
     };
 
@@ -1798,10 +1798,18 @@ static bool ensure_systemd_services_enabled(char *dest_dir) {
 
     if (pre_hook_service_enabled) {
         post_hook_service_enabled = link_and_enable_systemd_service(execfn, "resume.service", systemd_dir);
-        if (!post_hook_service_enabled)
+        if (!post_hook_service_enabled) {
+            // If post hook failed to enable, disable pre hook. 
+            // Ensures cold boot properly logs "cold-boot", upon restart
+            spawn_and_wait("systemctl", 2, "disable", "hibernate.service");
             log_info("Couldn't enable post hook resume service in %s: %s", systemd_dir, strerror(errno));
+        }
     }
     else {
+        // If pre hook failed to enable, disable post hook. 
+        // Prevents post hook from failing and logging "failed-resume-from-hibernation", 
+        // when cause of failure is simply pre hooks never getting executed. 
+        spawn_and_wait("systemctl", 2, "disable", "resume.service");
         log_info("Couldn't enable pre hook hibernate service in %s: %s", systemd_dir, strerror(errno));
     }
 
