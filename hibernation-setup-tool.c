@@ -1468,6 +1468,15 @@ static void notify_vm_host(enum host_vm_notification notification)
         [HOST_VM_NOTIFY_FAILED_RESUME_FROM_HIBERNATION] = "failed-resume-from-hibernation",
         [HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED] = "pre-hibernation-failed",
     };
+   
+   / *
+   if (notification ==  HOST_VM_NOTIFY_HIBERNATING) {
+       // TODO: link_and_enable_systemd_service(___, ____, ____)
+   }
+   else if (notification == HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED) {
+        spawn_and_wait("systemctl", 2, "disable", "resume.service");
+   }
+   */
 
     log_notice("Changed hibernation state to: %s\n", types[notification]);
 }
@@ -1518,7 +1527,7 @@ static int handle_pre_systemd_suspend_notification(const char *action)
     log_needs_pre_hook_prefix = true;
     if (!strcmp(action, "hibernate")) {
         log_info("Running pre-hibernate hooks");
-
+        
         /* Creating this directory with the right permissions is racy as
          * we're writing to tmp which is world-writable.  So do our best
          * here to ensure that if this for loop terminates normally, the
