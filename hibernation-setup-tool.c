@@ -1799,9 +1799,6 @@ static bool ensure_systemd_services_enabled(char *dest_dir) {
     if (pre_hook_service_enabled) {
         post_hook_service_enabled = link_and_enable_systemd_service(execfn, "resume.service", systemd_dir);
         if (!post_hook_service_enabled) {
-            // If post hook failed to enable, disable pre hook. 
-            // Ensures cold boot properly logs "cold-boot", upon restart
-            spawn_and_wait("systemctl", 2, "disable", "hibernate.service");
             log_info("Couldn't enable post hook resume service in %s: %s", systemd_dir, strerror(errno));
         }
     }
