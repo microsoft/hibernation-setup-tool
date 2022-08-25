@@ -1,0 +1,5 @@
+.vscode
+rpmbuild/BUILD
+rpmbuild/RPMS
+rpmbuild/SOURCES
+rpmbuild/SRPMS
