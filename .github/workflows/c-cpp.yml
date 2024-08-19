@@ -18,14 +18,6 @@ jobs:
 
     - name: Static analysis
       run: find . -name '*.c' | xargs clang-tidy --quiet
-    
-    - name: Generate coverage report
-      run: make coverage
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v2
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
 
     - name: Run make to build project
       run: make
