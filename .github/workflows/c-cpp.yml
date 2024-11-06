@@ -21,3 +21,17 @@ jobs:
 
     - name: Run make to build project
       run: make
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Install CMocka
+        run: sudo apt-get install -y libcmocka-dev
+
+      - name: Build and run tests
+        run: |
+          gcc -o hibernation-setup-tool-test hibernation-setup-tool-test.c hibernation-setup-tool.c -lcmocka
+          ./hibernation-setup-tool-test
