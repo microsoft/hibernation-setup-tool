@@ -69,8 +69,10 @@
 #endif
 
 #ifndef UNIT_TESTING
-#define fopen mock_fopen
-#define access mock_access
+    // Normal behavior
+#else
+    #define fopen mock_fopen
+    #define access mock_access
 #endif
 
 static const char swap_file_name[] = "/hibfile.sys";
