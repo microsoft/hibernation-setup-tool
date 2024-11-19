@@ -15,6 +15,10 @@ jobs:
     - uses: actions/checkout@v2
       with:
         submodules: recursive # Ensures that submodules are also checked out
+        
+    - name: Install Check
+      run: |
+        sudo apt-get install -y check check subunit
 
     - name: Static analysis
       run: find . -name '*.c' | xargs clang-tidy --quiet
@@ -22,16 +26,18 @@ jobs:
     - name: Run make to build project
       run: make
 
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v2
+    - name: Compile and run unit tests
+      run: |
+        gcc -DUNIT_TESTING -D_GNU_SOURCE -D_XOPEN_SOURCE=700 \
+        -o hibernation-setup-tool-test hibernation-setup-tool-test.c hibernation-setup-tool.c \
+        -lcheck -lsubunit -lm -pthread
+        if [ $? -ne 0 ]; then
+            echo "Compilation failure."
+            exit 1
+        fi
 
-      - name: Install CMocka
-        run: sudo apt-get install -y libcmocka-dev
-
-      - name: Build and run tests
-        run: |
-          gcc -o hibernation-setup-tool-test hibernation-setup-tool-test.c hibernation-setup-tool.c -lcmocka
-          ./hibernation-setup-tool-test
+        ./hibernation-setup-tool-test
+        if [ $? -ne 0 ]; then
+            echo "Unit test failure."
+            exit 1
+        fi
