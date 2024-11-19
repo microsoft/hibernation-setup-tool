@@ -20,14 +20,12 @@ jobs:
       run: |
         sudo apt-get install -y check check subunit
 
-    - name: Static analysis
-      run: find . -name '*.c' | xargs clang-tidy --quiet
-
     - name: Run make to build project
       run: make
 
     - name: Compile and run unit tests
       run: |
+        # Compile the code with unit testing flags
         gcc -DUNIT_TESTING -D_GNU_SOURCE -D_XOPEN_SOURCE=700 \
         -o hibernation-setup-tool-test hibernation-setup-tool-test.c hibernation-setup-tool.c \
         -lcheck -lsubunit -lm -pthread
@@ -39,5 +37,21 @@ jobs:
         ./hibernation-setup-tool-test
         if [ $? -ne 0 ]; then
             echo "Unit test failure."
+            exit 1
+        fi
+
+    - name: Static analysis
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bear clang-tidy
+
+        bear -- gcc -DUNIT_TESTING -D_GNU_SOURCE -D_XOPEN_SOURCE=700 \
+        -o hibernation-setup-tool-test hibernation-setup-tool-test.c hibernation-setup-tool.c \
+        -lcheck -lsubunit -lm -pthread
+
+        find . -name '*.c' | xargs clang-tidy --quiet
+
+        if [ $? -ne 0 ]; then
+            echo "Static analysis failed."
             exit 1
         fi

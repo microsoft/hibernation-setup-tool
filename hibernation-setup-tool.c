@@ -560,13 +560,11 @@ static bool is_hibernation_enabled_for_vm(void)
 
     if (is_running_in_container()) {
         log_info("We're running in a container; this isn't supported.");
-        printf("is running in container ");
         return false;
     }
 
     if (access("/dev/snapshot", F_OK) != 0) {
         log_info("Kernel does not support hibernation or /dev/snapshot has not been found.");
-        printf("mock access failed");
         return false;
     }
 
