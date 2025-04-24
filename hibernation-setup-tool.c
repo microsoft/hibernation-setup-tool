@@ -964,7 +964,9 @@ static void perform_fs_specific_checks(const char *path)
        While it is good to have optimization, not ideal to have performance hit on the tool */
 
     if (is_file_on_fs(path, EXT4_SUPER_MAGIC) && is_exec_in_path("e4defrag")) {
-        try_spawn_and_wait("e4defrag", 1, path);
+        if (!try_spawn_and_wait("e4defrag", 2, "-v", path)) {
+            log_fatal("e4defrag failed for %s. Exiting.", path);
+        }
         return;
     }
 
