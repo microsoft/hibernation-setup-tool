@@ -933,18 +933,6 @@ static bool try_vspawn_and_wait(const char *program, int n_args, va_list ap)
     return true;
 }
 
-static bool try_spawn_and_wait(const char *program, int n_args, ...)
-{
-    va_list ap;
-    bool spawned;
-
-    va_start(ap, n_args);
-    spawned = try_vspawn_and_wait(program, n_args, ap);
-    va_end(ap);
-
-    return spawned;
-}
-
 static void spawn_and_wait(const char *program, int n_args, ...)
 {
     va_list ap;
@@ -964,7 +952,7 @@ static void perform_fs_specific_checks(const char *path)
        While it is good to have optimization, not ideal to have performance hit on the tool */
 
     if (is_file_on_fs(path, EXT4_SUPER_MAGIC) && is_exec_in_path("e4defrag")) {
-        try_spawn_and_wait("e4defrag", 1, path);
+        spawn_and_wait("e4defrag", 2, "-v", path);
         return;
     }
 
@@ -979,7 +967,7 @@ static void perform_fs_specific_checks(const char *path)
             log_fatal("Swap files are not supported on Btrfs running on kernel %s", utsbuf.release);
 
         if (is_exec_in_path("btrfs"))
-            try_spawn_and_wait("btrfs", 3, "filesystem", "defragment", path);
+            spawn_and_wait("btrfs", 3, "filesystem", "defragment", path);
         return;
     }
 }
