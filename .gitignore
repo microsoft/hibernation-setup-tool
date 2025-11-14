@@ -1,3 +1,4 @@
 *.o
 hibernation-setup-tool
+hibernation-setup-tool-test
 .vscode
