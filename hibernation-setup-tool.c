@@ -89,6 +89,7 @@ enum host_vm_notification {
     HOST_VM_NOTIFY_COLD_BOOT,                /* Sent every time system cold boots */
     HOST_VM_NOTIFY_HIBERNATING,              /* Sent right before hibernation */
     HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION, /* Sent right after hibernation */
+    HOST_VM_NOTIFY_FAILED_RESUME_FROM_HIBERNATION, /* Sent right after failed hibernation */
     HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED,   /* Sent on errors when hibernating or resuming */
 };
 
@@ -1093,7 +1094,7 @@ static struct resume_swap_area get_swap_area(const struct swap_file *swap)
 
     log_info("Swap file %s is at device %ld, offset %d", swap->path, st.st_dev, offset);
 
-    return (struct resume_swap_area){
+    return (struct resume_swap_area) {
         .offset = offset,
         .dev = st.st_dev,
     };
@@ -1452,13 +1453,13 @@ static bool is_cold_boot(void)
     if (lock_file_path) {
         unlink(hibernate_lock_file_name);
 
-        if (access(lock_file_path, F_OK) < 0)
-            return true;
+        if (!access(lock_file_path, F_OK))
+            return false;
 
         unlink(lock_file_path);
     }
 
-    return false;
+    return true;
 }
 
 static void notify_vm_host(enum host_vm_notification notification)
@@ -1467,8 +1468,18 @@ static void notify_vm_host(enum host_vm_notification notification)
         [HOST_VM_NOTIFY_COLD_BOOT] = "cold-boot",
         [HOST_VM_NOTIFY_HIBERNATING] = "hibernating",
         [HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION] = "resumed-from-hibernation",
+        [HOST_VM_NOTIFY_FAILED_RESUME_FROM_HIBERNATION] = "failed-resume-from-hibernation",
         [HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED] = "pre-hibernation-failed",
     };
+   
+   / *
+   if (notification ==  HOST_VM_NOTIFY_HIBERNATING) {
+       // TODO: link_and_enable_systemd_service(___, ____, ____)
+   }
+   else if (notification == HOST_VM_NOTIFY_PRE_HIBERNATION_FAILED) {
+        spawn_and_wait("systemctl", 2, "disable", "resume.service");
+   }
+   */
 
     log_notice("Changed hibernation state to: %s\n", types[notification]);
 }
@@ -1519,7 +1530,7 @@ static int handle_pre_systemd_suspend_notification(const char *action)
     log_needs_pre_hook_prefix = true;
     if (!strcmp(action, "hibernate")) {
         log_info("Running pre-hibernate hooks");
-
+        
         /* Creating this directory with the right permissions is racy as
          * we're writing to tmp which is world-writable.  So do our best
          * here to ensure that if this for loop terminates normally, the
@@ -1619,19 +1630,28 @@ static int handle_post_systemd_suspend_notification(const char *action)
         const char *real_path;
 
         log_info("Running post-hibernate hooks");
-
+        bool cold_booted = false;
         real_path = readlink0(hibernate_lock_file_name, real_path_buf);
         if (!real_path) {
             /* No need to notify host VM here: if link wasn't there, it's most likely that the
              * pre-hibernation hooks failed to create it in the first place.  Log for debugging
              * but keep going. */
             log_info("This is probably fine, but couldn't readlink(%s): %s", hibernate_lock_file_name, strerror(errno));
-        } else if (unlink(real_path) < 0) {
-            log_info("This is fine, but couldn't remove %s: %s", real_path, strerror(errno));
-        }
+            cold_booted = true; 
+            notify_vm_host(HOST_VM_NOTIFY_FAILED_RESUME_FROM_HIBERNATION);
+        } 
+        
         if (unlink(hibernate_lock_file_name) < 0)
             log_info("This is fine, but couldn't remove %s: %s", hibernate_lock_file_name, strerror(errno));
 
+        if (!cold_booted && access(real_path, F_OK) < 0) {
+            cold_booted = true; 
+            notify_vm_host(HOST_VM_NOTIFY_FAILED_RESUME_FROM_HIBERNATION);
+        }
+        
+        if (real_path && unlink(real_path) < 0)
+            log_info("This is fine, but couldn't remove %s: %s", real_path, strerror(errno));
+       
         if (umount2("/tmp/hibernation-setup-tool", UMOUNT_NOFOLLOW | MNT_DETACH) < 0) {
             /* EINVAL is returned if this isn't a mount point. This is normal if /tmp was already
              * a tmpfs and we didn't create and mounted this directory in the pre-hibernate hook.
@@ -1644,7 +1664,8 @@ static int handle_post_systemd_suspend_notification(const char *action)
         if (!recursive_rmdir("/tmp/hibernation-setup-tool"))
             log_info("While removing /tmp/hibernation-setup-tool: %s", strerror(errno));
 
-        notify_vm_host(HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION);
+        if (!cold_booted)
+            notify_vm_host(HOST_VM_NOTIFY_RESUMED_FROM_HIBERNATION);
         log_info("Post-hibernation hooks executed successfully");
 
         return 0;
@@ -1656,7 +1677,7 @@ static int handle_post_systemd_suspend_notification(const char *action)
 
 static int handle_systemd_suspend_notification(const char *argv0, const char *when, const char *action)
 {
-    // Uncomment to view hook logs in syslogs
+    // Uncomment to view hook logs in syslog
     // log_needs_syslog = true;
 
     if (!strcmp(when, "pre"))
@@ -1669,15 +1690,139 @@ static int handle_systemd_suspend_notification(const char *argv0, const char *wh
     return 1;
 }
 
-static void link_hook(const char *src, const char *dest)
+static bool link_hook(const char *src, const char *dest)
 {
     if (link(src, dest) < 0) {
         if (errno != EEXIST)
-            return log_fatal("Couldn't link %s to %s: %s", src, dest, strerror(errno));
+            return false;
     }
 
     log_info("Notifying systemd of new hooks");
     spawn_and_wait("systemctl", 1, "daemon-reload");
+    return true;
+}
+
+static bool hard_link_file(const char *curr_file_path, char *target_dir, char *target_file) {
+    // Setup file permissions
+    char *mode_str = "0755";
+    int mode = strtol(mode_str, 0, 8);
+
+    // Construct target path for file
+    char target_path[PATH_MAX];
+    snprintf(target_path, sizeof(target_path), "%s%s%s", target_dir, "/", target_file);
+
+    // Set file permissions
+    if (chmod(curr_file_path, mode) < 0) {
+        log_info("Couldn't set permissions of %s to %s: %s", curr_file_path, mode_str, strerror(errno));
+        return false; 
+    }
+
+    // Create/ensure target directory for file
+    if (!mkdir(target_dir, 0755) && errno != EEXIST) {
+        log_info("Couldn't create target directory %s to store target file %s: %s", target_dir, target_path, strerror(errno));
+        return false; 
+    }
+
+    // Move file to target location
+    if (link(curr_file_path, target_path) < 0 && errno != EEXIST) {
+        log_info("Couldn't link %s to %s: %s", curr_file_path, target_path, strerror(errno));
+        return false;
+    }
+
+    return true;
+}
+
+static bool link_and_enable_systemd_service(const char *dir_parent, char *service_file_name, char *systemd_dir) {
+    // Setup service file permissions
+    char *service_mode_str = "0644";
+    int service_mode = strtol(service_mode_str, 0, 8);
+
+    // Construct existing path to service file
+    char service_tool_path[PATH_MAX];
+    snprintf(service_tool_path, sizeof(service_tool_path), "%s%s%s", dir_parent, "/", service_file_name);
+    
+    // Construct target path for service file
+    char systemd_path[PATH_MAX]; 
+    snprintf(systemd_path, sizeof(systemd_path), "%s%s%s", systemd_dir, "/", service_file_name);
+
+    // Set service file permissions
+    if(chmod(service_tool_path, service_mode) < 0) {
+        log_info("Couldn't set permissions of %s to %s: %s", service_tool_path, service_mode_str, strerror(errno));
+        return false; 
+    }
+
+    // Create/ensure target directory for service file
+    if(!mkdir(systemd_dir, 0755) && errno != EEXIST) { 
+        log_info("Couldn't create directory location %s to store service: %s", systemd_dir, strerror(errno));
+        return false; 
+    }
+
+    // Move service file to target location
+    if(!link_hook(service_tool_path, systemd_path)) {
+        log_info("Couldn't link %s to %s: %s", service_tool_path, systemd_path, strerror(errno));
+        return false;
+    }
+
+    // Enable service
+    spawn_and_wait("systemctl", 2, "enable", service_file_name);
+    return true; 
+}
+
+static bool ensure_systemd_services_enabled(char *dest_dir) {
+    const char *execfn = (const char *)getauxval(AT_EXECFN);
+    const char *usr_sbin_default = "/usr/sbin", *systemd_dir_default = "/lib/systemd/system";
+
+    char usr_sbin_dir[PATH_MAX], systemd_dir[PATH_MAX];
+
+    if (dest_dir) {
+        snprintf(usr_sbin_dir, sizeof(usr_sbin_dir), "%s%s", dest_dir, usr_sbin_default);
+        snprintf(systemd_dir, sizeof(systemd_dir), "%s%s", dest_dir, systemd_dir_default);
+    } else {
+        snprintf(usr_sbin_dir, sizeof(usr_sbin_dir), "%s", usr_sbin_default);
+        snprintf(systemd_dir, sizeof(systemd_dir), "%s", systemd_dir_default);
+    }
+
+    if (!hard_link_file(execfn, usr_sbin_dir, "hibernation-setup-tool")) {
+        log_info("Couldn't create hard link to %s to store hibernation tool executable: %s", usr_sbin_dir, strerror(errno));
+        return false;
+    }
+
+    char* last_slash = strrchr(execfn, '/');
+    if(last_slash == NULL)
+        return false;
+    *last_slash = '\0';
+
+    // If tool is being executed by the systemd service
+    // tool is in /usr/sbin. In which case services are
+    // already setup and we do not want to link and enable them again.
+    if(!strncmp(execfn, usr_sbin_default, sizeof("/usr/sbin") - 1)) {
+        log_info("Services Enabled. Service running tool in folder: %s", execfn);
+        return true;
+    }
+
+    bool tool_service_enabled = false, pre_hook_service_enabled = false, post_hook_service_enabled = false; 
+
+    tool_service_enabled = link_and_enable_systemd_service(execfn, "hibernation-setup-tool.service", systemd_dir);
+    if (!tool_service_enabled)
+        log_info("Couldn't enable hibernation tool service in %s: %s", systemd_dir, strerror(errno));
+
+    pre_hook_service_enabled = link_and_enable_systemd_service(execfn, "hibernate.service", systemd_dir);
+
+    if (pre_hook_service_enabled) {
+        post_hook_service_enabled = link_and_enable_systemd_service(execfn, "resume.service", systemd_dir);
+        if (!post_hook_service_enabled) {
+            log_info("Couldn't enable post hook resume service in %s: %s", systemd_dir, strerror(errno));
+        }
+    }
+    else {
+        // If pre hook failed to enable, disable post hook. 
+        // Prevents post hook from failing and logging "failed-resume-from-hibernation", 
+        // when cause of failure is simply pre hooks never getting executed. 
+        spawn_and_wait("systemctl", 2, "disable", "resume.service");
+        log_info("Couldn't enable pre hook hibernate service in %s: %s", systemd_dir, strerror(errno));
+    }
+
+    return tool_service_enabled && pre_hook_service_enabled && post_hook_service_enabled;
 }
 
 int main(int argc, char *argv[])
@@ -1794,6 +1939,8 @@ int main(int argc, char *argv[])
 
     if (is_hyperv()) {
         ensure_udev_rules_are_installed();
+        if(!ensure_systemd_services_enabled(dest_dir))
+            log_info("Could not enable systemd services");
     }
 
     log_info("Swap file for VM hibernation set up successfully");
