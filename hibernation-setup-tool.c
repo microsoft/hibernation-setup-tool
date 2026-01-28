@@ -270,25 +270,28 @@ static struct swap_file *find_swap_file(size_t needed_size)
 
     while (fgets(buffer, sizeof(buffer), swaps)) {
         char *filename = buffer;
-        char *type = next_field(filename);
+        if (!strncmp(filename, swap_file_name, sizeof(swap_file_name) - 1)) {
+            char *type = next_field(filename);
 
-        if (!type) {
-            log_info("Couldn't get the second field while parsing /proc/swaps");
-            break;
-        }
+            if (!type) {
+                log_info("Couldn't get the second field while parsing /proc/swaps");
+                break;
+            }
 
-        if (!strcmp(type, "file")) {
-            char *size = next_field(type);
+            if (!strncmp(type, "file", sizeof("file") - 1)) {
+                char *size = next_field(type);
 
-            if (!size)
-                log_fatal("Malformed line in /proc/swaps: can't find size column");
+                if (!size)
+                    log_fatal("Malformed line in /proc/swaps: can't find size column");
 
-            size_t size_as_int = parse_size_or_die(size, ' ', NULL);
-            if (size_as_int < needed_size)
-                continue;
+            size_t size_as_int_kb = parse_size_or_die(size, ' ', NULL);
+            size_t size_as_int_b = size_as_int_kb * 1024;
+            if (size_as_int_b < needed_size)
+                    continue;
 
-            out = new_swap_file(filename, size_as_int);
-            break;
+                out = new_swap_file(filename, size_as_int_b);
+                break;
+            }
         }
     }
 
