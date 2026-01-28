@@ -1259,6 +1259,23 @@ static bool update_kernel_cmdline_params_for_grub(
         }
     }
 
+    if (is_exec_in_path("sync")) {
+	     log_info("sync the grub cmdline changes to disk");
+	     spawn_and_wait("sync", 0);
+    }
+    /*
+     * If the underlying filesystem is a journaling filesystem, and hibernation is triggered immediately
+     * after these updates are done, sometimes the initramfs during resume ends up reading the older grub
+     * cmdline(without the resume and resume_offset param). This is because the metadata for these files
+     * does not get updated immediately. We need to force this by flushing the fs journal after successfully
+     * making the grub cmdline changes
+     */
+    if (is_exec_in_path("fsfreeze")) {
+	    log_info("force fs journal flush by freezing/unfreezing filesystem using fsfreeze");
+	    spawn_and_wait("fsfreeze", 2, "-f", "/boot");
+	    spawn_and_wait("fsfreeze", 2, "-u", "/boot");
+    }
+
     free(args);
 
     return ret_value;
