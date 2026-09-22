@@ -1,0 +1,10 @@
+[Unit]
+Description=User hibernate actions
+Before=hibernate.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/hibernation-setup-tool -w pre -a hibernate
+
+[Install]
+WantedBy=hibernate.target
