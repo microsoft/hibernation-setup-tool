@@ -68,6 +68,13 @@
 #define XFS_SUPER_MAGIC ('X' << 24 | 'F' << 16 | 'S' << 8 | 'B')
 #endif
 
+#ifndef UNIT_TESTING
+    // Normal behavior
+#else
+    #define fopen mock_fopen
+    #define access mock_access
+#endif
+
 static const char swap_file_name[] = "/hibfile.sys";
 
 /* Prefixes are needed when running services. This makes it easier to grep for
@@ -508,6 +515,9 @@ static char *read_first_line_from_file(const char *path, char buffer[static 1024
 
 static bool is_hyperv(void) { return !access("/sys/bus/vmbus", F_OK); }
 
+#ifdef UNIT_TESTING
+bool is_running_in_container(void);
+#else
 static bool is_running_in_container(void)
 {
     FILE *cgroup;
@@ -543,6 +553,7 @@ static bool is_running_in_container(void)
 
     return ret;
 }
+#endif
 
 static bool is_hibernation_enabled_for_vm(void)
 {
@@ -972,7 +983,7 @@ static void perform_fs_specific_checks(const char *path)
     }
 }
 
-bool is_kernel_version_at_least(const char *version)
+static bool is_kernel_version_at_least(const char *version)
 {
     struct utsname my_uname;
     if (uname(&my_uname) == -1) {
@@ -1680,6 +1691,7 @@ static void link_hook(const char *src, const char *dest)
     spawn_and_wait("systemctl", 1, "daemon-reload");
 }
 
+#ifndef UNIT_TESTING
 int main(int argc, char *argv[])
 {
     char *dest_dir = NULL;
@@ -1802,3 +1814,4 @@ int main(int argc, char *argv[])
 
     return 0;
 }
+#endif
